@@ -118,8 +118,9 @@ const renderPage = (page: Page) => {
 
   // Offscreen canvas
   if (
-    page.offscreenCanvas.width !== page.size_px.x ||
-    page.offscreenCanvas.height !== page.size_px.y
+    !isZooming.value &&
+    (page.offscreenCanvas.width !== page.size_px.x ||
+      page.offscreenCanvas.height !== page.size_px.y)
   ) {
     page.offscreenCanvas.width = page.size_px.x;
     page.offscreenCanvas.height = page.size_px.y;
@@ -157,7 +158,13 @@ const renderPage = (page: Page) => {
   // Clear it every frame
   page.visibleCtx.clearRect(0, 0, page.size_px.x, page.size_px.y);
 
-  page.visibleCtx.drawImage(page.offscreenCanvas, 0, 0);
+  page.visibleCtx.drawImage(
+    page.offscreenCanvas,
+    0,
+    0,
+    page.size_px.x,
+    page.size_px.y,
+  );
 
   if (page.previewShape) {
     drawShape(page.visibleCtx, page.previewShape, "fast");
