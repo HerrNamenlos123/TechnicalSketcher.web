@@ -30,7 +30,7 @@ const up = (e: PointerEvent) => {
 </script>
 
 <template>
-  <div class="flex flex-col bg-background h-svh w-svh overflow-hidden">
+  <div class="flex flex-col bg-background h-svh w-svh">
     <TopBar />
     <div class="relative w-full flex-grow flex">
       <Sketcher

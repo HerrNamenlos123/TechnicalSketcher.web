@@ -4,3 +4,7 @@
 
 :root {
 }
+
+html, body {
+  touch-action: none;
+}
