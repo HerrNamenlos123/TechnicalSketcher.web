@@ -1,0 +1,229 @@
+import type { FSDirEntry, FSFileEntry, TskFileFormat, VaultFS } from "@/types";
+import { defineStore } from "pinia";
+import { Page, Document } from "./Document";
+import { Vec2 } from "./Vector";
+
+export function assert<T>(
+  value: T | null | undefined,
+  message?: string,
+): asserts value is T {
+  if (!value) throw new Error(message ?? "Assertion failed");
+}
+
+export const useStore = defineStore("main", {
+  state: () => ({
+    vault: undefined as VaultFS | undefined,
+    openDocuments: [] as Document[],
+    currentDocument: undefined as Document | undefined,
+  }),
+  actions: {
+    async initVault() {
+      const dirHandle = await window.showDirectoryPicker();
+      await dirHandle.requestPermission({ mode: "readwrite" });
+
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.open("vault-db", 1);
+
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore("vault");
+        };
+
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction("vault", "readwrite");
+          tx.objectStore("vault").put(dirHandle, "dir");
+          tx.oncomplete = () => {
+            db.close();
+            resolve(null);
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+
+        request.onerror = () => reject(request.error);
+      });
+    },
+
+    async readVault(rootHandle: FileSystemDirectoryHandle): Promise<VaultFS> {
+      const processEntries = async (
+        dirHandle: FileSystemDirectoryHandle,
+      ): Promise<(FSFileEntry | FSDirEntry)[]> => {
+        const entries: (FSFileEntry | FSDirEntry)[] = [];
+        for await (const [name, handle] of dirHandle.entries()) {
+          if (handle.kind === "file") {
+            if (!name.includes(".crswap")) {
+              entries.push({
+                type: "file",
+                filename: name,
+                handle: handle,
+              });
+            }
+          } else if (handle.kind === "directory") {
+            entries.push({
+              type: "directory",
+              dirname: name,
+              handle: handle,
+              children: await processEntries(handle),
+            });
+          }
+        }
+        return entries;
+      };
+
+      const fs: VaultFS = {
+        filetree: await processEntries(rootHandle),
+        rootHandle: rootHandle,
+      };
+      return fs;
+    },
+    async loadVault() {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open("vault-db", 1);
+
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction("vault", "readwrite");
+          const store = tx.objectStore("vault");
+          const getReq = store.get("dir");
+
+          getReq.onsuccess = async () => {
+            const dirHandle = getReq.result;
+            if (
+              dirHandle &&
+              (await dirHandle.queryPermission({ mode: "readwrite" })) ===
+                "granted"
+            ) {
+              useStore().vault = await this.readVault(dirHandle);
+            }
+            resolve();
+          };
+
+          getReq.onerror = () => reject(getReq.error);
+        };
+
+        request.onerror = () => reject(request.error);
+      });
+    },
+    async loadDocument(filehandle: FSFileEntry): Promise<Document | undefined> {
+      const file = await filehandle.handle.getFile();
+      const content = await file.text();
+
+      try {
+        const input: TskFileFormat = JSON.parse(content);
+
+        if (input.filetype !== "technicalsketcher") {
+          console.error("File type was not 'technicalsketcher'");
+          return undefined;
+        }
+
+        if (input.fileversion !== 1) {
+          console.error("File version was not 1");
+          return undefined;
+        }
+
+        const document: Document = new Document(
+          input.data.pages.map(
+            (p, i) =>
+              new Page(
+                i,
+                p.shapes.map((s) => ({
+                  points: s.points.map((point) => ({
+                    x: point.x,
+                    y: point.y,
+                    pressure: point.pressure,
+                  })),
+                })),
+              ),
+          ),
+          input.data.pageColor,
+          input.data.gridColor,
+          input.data.gridType,
+          new Vec2(300, 100),
+          5,
+          filehandle,
+        );
+        return document;
+      } catch (e: unknown) {
+        console.error(e);
+        return undefined;
+      }
+    },
+    async loadAndOpenDocument(filehandle: FSFileEntry) {
+      const newDoc = await this.loadDocument(filehandle);
+      if (!newDoc) {
+        console.error("Loading doc failed");
+        return;
+      }
+      for (let i = 0; i < this.openDocuments.length; i++) {
+        if (
+          this.openDocuments[i].fileHandle?.filename ===
+          newDoc?.fileHandle?.filename
+        ) {
+          this.openDocuments[i] = newDoc;
+          this.currentDocument = newDoc;
+          return;
+        }
+      }
+
+      // No match
+      this.openDocuments.push(newDoc);
+      this.currentDocument = newDoc;
+    },
+    async saveDocument(document: Document) {
+      const output: TskFileFormat = {
+        filetype: "technicalsketcher",
+        fileversion: 1,
+        data: {
+          pageColor: document.pageColor,
+          gridColor: document.gridColor,
+          gridType: document.gridType,
+          pages: document.pages.map((p) => ({
+            shapes: p.shapes.map((s) => ({
+              points: s.points,
+            })),
+          })),
+        },
+      };
+
+      if (!document.fileHandle) {
+        console.error("fileHandle missing while saving");
+        return;
+      }
+
+      const writable = await document.fileHandle.handle.createWritable();
+      await writable.write(JSON.stringify(output));
+      await writable.close();
+    },
+    async createDocument(path: string) {
+      const getOrCreateFile = async (
+        root: FileSystemDirectoryHandle,
+        path: string,
+      ) => {
+        const parts = path.split("/").filter(Boolean);
+        const filename = parts.pop()!;
+        let dir = root;
+
+        for (const part of parts) {
+          dir = await dir.getDirectoryHandle(part, { create: true });
+        }
+
+        return await dir.getFileHandle(filename, { create: true });
+      };
+
+      if (!this.vault?.filetree) {
+        return;
+      }
+
+      const filehandle = await getOrCreateFile(this.vault.rootHandle, path);
+
+      const doc = new Document([new Page(0)]);
+      doc.fileHandle = {
+        handle: filehandle,
+        filename: path.split("/").pop()!,
+        type: "file",
+      };
+
+      this.saveDocument(doc);
+      this.loadVault();
+    },
+  },
+});

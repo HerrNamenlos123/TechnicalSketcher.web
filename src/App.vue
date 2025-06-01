@@ -1,6 +1,28 @@
 <script setup lang="ts">
 import TopBar from "./components/TopBar.vue";
 import FreehandTest from "./components/FreehandTest.vue";
+import { onMounted, onUnmounted } from "vue";
+import SideNav from "./components/SideNav.vue";
+import { useStore } from "./components/store";
+import { Document } from "./components/Document";
+
+const store = useStore();
+onMounted(async () => {
+  store.currentDocument = new Document();
+});
+
+const keydown = (e: KeyboardEvent) => {
+  if (e.key === "s" && e.ctrlKey) {
+    e.preventDefault();
+  }
+};
+
+onMounted(() => {
+  window.addEventListener("keydown", keydown);
+});
+onUnmounted(() => {
+  window.removeEventListener("keydown", keydown);
+});
 </script>
 
 <template>
@@ -8,11 +30,10 @@ import FreehandTest from "./components/FreehandTest.vue";
     <div ref="canvasWrapper" class="w-full h-full flex flex-col">
       <TopBar />
       <div class="w-full flex-grow flex">
-        <div
-          id="sidenav"
-          class="w-[200px] bg-background border-r border-white border-opacity-20"
-        />
+        <SideNav />
         <FreehandTest
+          v-if="store.currentDocument"
+          v-model:document="store.currentDocument"
           :max-zoom="10"
           :min-zoom="0.1"
           :zoom-sensitivity="0.001"

@@ -1,76 +1,23 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { getStroke } from "perfect-freehand";
 import { Vec2 } from "./Vector";
+import { Document, Page, type Point, type Shape } from "./Document";
+import { assert, useStore } from "./store";
 
 const perfectFreehandAccuracyScaling = 10;
 const penSizeMm = 0.3;
 const pageGap = 1.03;
-const gridColor = "#45b4a6";
+
+const store = useStore();
+
+const currentDocument = defineModel<Document>("document", { required: true });
 
 const props = defineProps<{
   maxZoom: number;
   minZoom: number;
   zoomSensitivity: number;
 }>();
-
-function assert<T>(
-  value: T | null | undefined,
-  message?: string,
-): asserts value is T {
-  if (!value) throw new Error(message ?? "Assertion failed");
-}
-
-type Point = {
-  x: number;
-  y: number;
-  pressure: number;
-};
-
-type Shape = {
-  points: Point[];
-  lagCompensation?: boolean;
-};
-
-class Page {
-  shapes: Shape[] = [];
-  previewShape: Shape | undefined;
-  pageNumber: number;
-  size_mm = new Vec2(210, 297);
-  size_px = new Vec2();
-  offset_px = new Vec2();
-  visibleCanvas: HTMLCanvasElement | null = null;
-  offscreenCanvas: HTMLCanvasElement | null = null;
-
-  get visibleCtx() {
-    assert(this.visibleCanvas);
-    return this.visibleCanvas.getContext("2d")!;
-  }
-
-  get offscreenCtx() {
-    assert(this.offscreenCanvas);
-    return this.offscreenCanvas.getContext("2d")!;
-  }
-
-  constructor(pageNumber: number) {
-    this.pageNumber = pageNumber;
-  }
-}
-
-class Document {
-  pages: Page[] = [];
-  zoom_px_per_mm = 5;
-  offset = new Vec2(0, 0);
-
-  constructor() {}
-}
-
-const currentDocument = ref<Document>(new Document());
-onMounted(() => {
-  currentDocument.value.offset = new Vec2(300, 100);
-  currentDocument.value.pages.push(new Page(0));
-  currentDocument.value.pages.push(new Page(1));
-});
 
 const pageCanvas = ref<HTMLCanvasElement[] | null>(null);
 const viewport = ref<HTMLDivElement | null>(null);
@@ -183,7 +130,7 @@ const renderPage = (page: Page) => {
     const lineDistanceMm = 10;
     ctx.lineWidth = lineWidthMm * currentDocument.value.zoom_px_per_mm;
     ctx.lineCap = "butt";
-    ctx.strokeStyle = gridColor;
+    ctx.strokeStyle = currentDocument.value.gridColor;
     for (let y = 0; y < page.size_mm.y; y += lineDistanceMm) {
       ctx.beginPath();
       ctx.moveTo(0, y * currentDocument.value.zoom_px_per_mm);
@@ -329,6 +276,7 @@ const pointerDownHandler = (e: PointerEvent) => {
     pointerEvents.value.push(e);
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
+    //
   } else if (e.pointerType == "pen") {
     e.preventDefault();
     const page = findPage(e.offsetX, e.offsetY);
@@ -362,6 +310,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
     pointerEvents.value[index] = e;
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
+    //
   } else if (e.pointerType == "pen") {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page?.previewShape) return;
@@ -391,6 +340,7 @@ const pointerUpHandler = (e: PointerEvent) => {
     }
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
+    //
   } else if (e.pointerType == "pen") {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page?.previewShape) return;
@@ -408,6 +358,14 @@ const pointerUpHandler = (e: PointerEvent) => {
     drawShape(page.offscreenCtx, page.previewShape, "accurate");
     page.shapes.push({ points: page.previewShape.points });
     page.previewShape = undefined;
+
+    if (page.pageIndex === currentDocument.value.pages.length - 1) {
+      currentDocument.value.pages.push(
+        new Page(currentDocument.value.pages.length),
+      );
+    }
+
+    store.saveDocument(currentDocument.value);
   }
   render();
 };
@@ -419,15 +377,37 @@ const makeOffscreenCanvas = (size: Vec2) => {
   return offscreen;
 };
 
-onMounted(async () => {
-  await nextTick();
-  if (!pageCanvas.value) throw new Error("Canvas ref not available");
-  for (let i = 0; i < currentDocument.value.pages.length; i++) {
-    const page = currentDocument.value.pages[i];
-    page.visibleCanvas = pageCanvas.value[i];
-    page.offscreenCanvas = makeOffscreenCanvas(new Vec2(0, 0));
+watch(
+  [() => currentDocument.value, () => currentDocument.value.pages.length],
+  async () => {
+    await nextTick();
+    if (!pageCanvas.value) return;
+    for (let i = 0; i < currentDocument.value.pages.length; i++) {
+      const page = currentDocument.value.pages[i];
+      page.visibleCanvas = pageCanvas.value[i];
+      page.offscreenCanvas = makeOffscreenCanvas(new Vec2(0, 0));
+    }
+    render();
+  },
+  { immediate: true },
+);
+
+const keydown = (e: KeyboardEvent) => {
+  if (e.key === "s" && e.ctrlKey) {
+    e.preventDefault();
+    if (currentDocument.value.fileHandle) {
+      store.saveDocument(currentDocument.value);
+    } else {
+      console.error("Current file has no handle attached");
+    }
   }
-  render();
+};
+
+onMounted(() => {
+  window.addEventListener("keydown", keydown);
+});
+onUnmounted(() => {
+  window.removeEventListener("keydown", keydown);
 });
 </script>
 
@@ -435,6 +415,7 @@ onMounted(async () => {
   <div
     ref="viewport"
     class="relative w-full h-full overflow-hidden bg-black"
+    @keydown="keydown"
     @pointercancel="pointerUpHandler($event)"
     @pointerdown="pointerDownHandler($event)"
     @pointerleave="pointerUpHandler($event)"
@@ -445,7 +426,7 @@ onMounted(async () => {
   >
     <canvas
       v-for="page in currentDocument.pages"
-      :key="page.pageNumber"
+      :key="page.pageIndex"
       ref="pageCanvas"
       class="absolute bg-white pointer-events-none"
       :style="{
