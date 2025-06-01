@@ -1,50 +1,23 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
-import Sketcher from "./components/Sketcher/Sketcher.vue";
 import TopBar from "./components/TopBar.vue";
-
-onMounted(() => {
-  document.addEventListener("onpointerdown", (e) => {
-    console.log("Pointer down global");
-  });
-  document.addEventListener("onpointermove", (e) => {
-    console.log("Pointer move global");
-  });
-  document.addEventListener("onpointerup", (e) => {
-    console.log("Pointer up global");
-  });
-});
-
-const down = (e: PointerEvent) => {
-  e.preventDefault();
-  console.log("pointer down");
-};
-const move = (e: PointerEvent) => {
-  e.preventDefault();
-  console.log("pointer move");
-};
-const up = (e: PointerEvent) => {
-  e.preventDefault();
-  console.log("pointer up");
-};
+import FreehandTest from "./components/FreehandTest.vue";
 </script>
 
 <template>
-  <div class="flex flex-col bg-background h-svh w-svh">
-    <TopBar />
-    <div class="relative w-full flex-grow flex">
-      <Sketcher
-        :invert-mouse="false"
-        :snap-to-grid-c-m="1"
-        :zoom-sensitivity="0.001"
-      />
+  <div class="flex flex-col bg-background h-svh w-svh" @wheel.prevent>
+    <div ref="canvasWrapper" class="w-full h-full flex flex-col">
+      <TopBar />
+      <div class="w-full flex-grow flex">
+        <div
+          id="sidenav"
+          class="w-[200px] bg-background border-r border-white border-opacity-20"
+        />
+        <FreehandTest
+          :max-zoom="10"
+          :min-zoom="0.1"
+          :zoom-sensitivity="0.001"
+        />
+      </div>
     </div>
   </div>
-  <!-- <div class="w-screen h-screen bg-red-500 test" @pointerdown="down" -->
-  <!--   @pointermove="move" @pointerup="up" /> -->
 </template>
-<style scoped>
-.test {
-  touch-action: none;
-}
-</style>

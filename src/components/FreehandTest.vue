@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from "vue";
 import { getStroke } from "perfect-freehand";
-import { Vec2 } from "../types/Vector";
+import { Vec2 } from "./Vector";
 
 const perfectFreehandAccuracyScaling = 10;
 const penSizeMm = 0.3;
