@@ -4,7 +4,8 @@ import { getStroke } from "perfect-freehand";
 import { Vec2 } from "../types/Vector";
 
 const perfectFreehandAccuracyScaling = 10;
-const penSizeMm = 1;
+const penSizeMm = 0.3;
+const gridColor = "#45b4a6";
 
 function assert<T>(
   value: T | null | undefined,
@@ -70,7 +71,7 @@ const getPath = (points: Point[], mode: "fast" | "accurate") =>
   getStroke(points, {
     size: penSizeMm * perfectFreehandAccuracyScaling,
     smoothing: 1,
-    streamline: mode === "fast" ? 0.3 : 0.3,
+    streamline: mode === "fast" ? 0.6 : 0.6,
     thinning: 0.1,
   });
 
@@ -111,7 +112,8 @@ const render = () => {
   // requestAnimationFrame(render);
 };
 
-const start = (e: MouseEvent, page: Page) => {
+const start = (e: PointerEvent, page: Page) => {
+  if (e.pointerType !== "pen") return;
   const mousePosPx = new Vec2(e.offsetX, e.offsetY);
   const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
   page.previewShape = {
@@ -126,7 +128,8 @@ const start = (e: MouseEvent, page: Page) => {
   render();
 };
 
-const draw = (e: MouseEvent, page: Page) => {
+const draw = (e: PointerEvent, page: Page) => {
+  if (e.pointerType !== "pen") return;
   if (!page.previewShape) return;
   if (e.movementX === 0 && e.movementY === 0) return;
   const mousePosPx = new Vec2(e.offsetX, e.offsetY);
@@ -139,7 +142,8 @@ const draw = (e: MouseEvent, page: Page) => {
   render();
 };
 
-const end = (e: MouseEvent, page: Page) => {
+const end = (e: PointerEvent, page: Page) => {
+  if (e.pointerType !== "pen") return;
   if (!page.previewShape) return;
   const mousePosPx = new Vec2(e.offsetX, e.offsetY);
   const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
@@ -167,6 +171,19 @@ const renderPage = (page: Page) => {
     page.offscreenCanvas.width = page.size_px.x;
     page.offscreenCanvas.height = page.size_px.y;
     // This clears the canvas automatically
+
+    const ctx = page.offscreenCtx;
+    const lineWidthMm = 0.3;
+    const lineDistanceMm = 10;
+    ctx.lineWidth = lineWidthMm * currentDocument.value.zoom_px_per_mm;
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = gridColor;
+    for (let y = 0; y < page.size_mm.y; y += lineDistanceMm) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * currentDocument.value.zoom_px_per_mm);
+      ctx.lineTo(page.size_px.x, y * currentDocument.value.zoom_px_per_mm);
+      ctx.stroke();
+    }
 
     for (const page of currentDocument.value.pages) {
       for (const shape of page.shapes) {
