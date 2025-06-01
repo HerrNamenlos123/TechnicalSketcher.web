@@ -15,6 +15,7 @@
     "@tauri-apps/plugin-shell": "^2",
     "@typescript-eslint/parser": "^8.4.0",
     "@vueuse/core": "^11.1.0",
+    "pdf-lib": "^1.17.1",
     "perfect-freehand": "^1.2.2",
     "pinia": "^2.2.2",
     "vue": "^3.3.4",

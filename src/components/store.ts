@@ -1,7 +1,9 @@
 import type { FSDirEntry, FSFileEntry, TskFileFormat, VaultFS } from "@/types";
 import { defineStore } from "pinia";
-import { Page, Document } from "./Document";
+import { Page, Document, type Point } from "./Document";
 import { Vec2 } from "./Vector";
+import { PDFDocument, PDFPage, rgb } from "pdf-lib";
+import getStroke from "perfect-freehand";
 
 export function assert<T>(
   value: T | null | undefined,
@@ -15,6 +17,11 @@ export const useStore = defineStore("main", {
     vault: undefined as VaultFS | undefined,
     openDocuments: [] as Document[],
     currentDocument: undefined as Document | undefined,
+    penSizeMm: 0.3,
+    perfectFreehandAccuracyScaling: 10,
+    pageGap: 1.03,
+    gridLineThicknessMm: 0.3,
+    gridLineDistanceMm: 10,
   }),
   actions: {
     async initVault() {
@@ -46,6 +53,7 @@ export const useStore = defineStore("main", {
     async readVault(rootHandle: FileSystemDirectoryHandle): Promise<VaultFS> {
       const processEntries = async (
         dirHandle: FileSystemDirectoryHandle,
+        parentPath: string,
       ): Promise<(FSFileEntry | FSDirEntry)[]> => {
         const entries: (FSFileEntry | FSDirEntry)[] = [];
         for await (const [name, handle] of dirHandle.entries()) {
@@ -55,6 +63,7 @@ export const useStore = defineStore("main", {
                 type: "file",
                 filename: name,
                 handle: handle,
+                fullPath: parentPath + name,
               });
             }
           } else if (handle.kind === "directory") {
@@ -62,7 +71,8 @@ export const useStore = defineStore("main", {
               type: "directory",
               dirname: name,
               handle: handle,
-              children: await processEntries(handle),
+              fullPath: parentPath + name + "/",
+              children: await processEntries(handle, parentPath + name + "/"),
             });
           }
         }
@@ -70,7 +80,7 @@ export const useStore = defineStore("main", {
       };
 
       const fs: VaultFS = {
-        filetree: await processEntries(rootHandle),
+        filetree: await processEntries(rootHandle, ""),
         rootHandle: rootHandle,
       };
       return fs;
@@ -127,8 +137,8 @@ export const useStore = defineStore("main", {
                 i,
                 p.shapes.map((s) => ({
                   points: s.points.map((point) => ({
-                    x: point.x,
-                    y: point.y,
+                    x: point.x * this.perfectFreehandAccuracyScaling,
+                    y: point.y * this.perfectFreehandAccuracyScaling,
                     pressure: point.pressure,
                   })),
                 })),
@@ -178,7 +188,11 @@ export const useStore = defineStore("main", {
           gridType: document.gridType,
           pages: document.pages.map((p) => ({
             shapes: p.shapes.map((s) => ({
-              points: s.points,
+              points: s.points.map((point) => ({
+                x: point.x / this.perfectFreehandAccuracyScaling,
+                y: point.y / this.perfectFreehandAccuracyScaling,
+                pressure: point.pressure,
+              })),
             })),
           })),
         },
@@ -193,37 +207,138 @@ export const useStore = defineStore("main", {
       await writable.write(JSON.stringify(output));
       await writable.close();
     },
+    async getOrCreateFile(root: FileSystemDirectoryHandle, path: string) {
+      const parts = path.split("/").filter(Boolean);
+      const filename = parts.pop()!;
+      let dir = root;
+
+      for (const part of parts) {
+        dir = await dir.getDirectoryHandle(part, { create: true });
+      }
+
+      return await dir.getFileHandle(filename, { create: true });
+    },
     async createDocument(path: string) {
-      const getOrCreateFile = async (
-        root: FileSystemDirectoryHandle,
-        path: string,
-      ) => {
-        const parts = path.split("/").filter(Boolean);
-        const filename = parts.pop()!;
-        let dir = root;
-
-        for (const part of parts) {
-          dir = await dir.getDirectoryHandle(part, { create: true });
-        }
-
-        return await dir.getFileHandle(filename, { create: true });
-      };
-
       if (!this.vault?.filetree) {
         return;
       }
 
-      const filehandle = await getOrCreateFile(this.vault.rootHandle, path);
+      const filehandle = await this.getOrCreateFile(
+        this.vault.rootHandle,
+        path,
+      );
 
       const doc = new Document([new Page(0)]);
       doc.fileHandle = {
         handle: filehandle,
         filename: path.split("/").pop()!,
         type: "file",
+        fullPath: path,
       };
 
       this.saveDocument(doc);
       this.loadVault();
+    },
+    getPath(points: Point[], mode: "fast" | "accurate") {
+      return getStroke(points, {
+        size: this.penSizeMm * this.perfectFreehandAccuracyScaling,
+        smoothing: 1,
+        streamline: mode === "fast" ? 0.6 : 0.6,
+        thinning: 0.1,
+      });
+    },
+    async exportDocumentAsPdf(doc: Document) {
+      const freehandScaling = this.perfectFreehandAccuracyScaling;
+
+      function getSvgPathFromStroke(points: number[][]): string {
+        if (!points.length) return "";
+
+        const d = [];
+        d.push(
+          `M${points[0][0] / freehandScaling} ${points[0][1] / freehandScaling}`,
+        );
+
+        for (let i = 1; i < points.length - 1; i++) {
+          const [x0, y0] = points[i];
+          const [x1, y1] = points[i + 1];
+          const mx = (x0 + x1) / 2;
+          const my = (y0 + y1) / 2;
+          d.push(
+            `Q${x0 / freehandScaling} ${y0 / freehandScaling} ${mx / freehandScaling} ${my / freehandScaling}`,
+          );
+        }
+
+        d.push("Z");
+        return d.join(" ");
+      }
+
+      const pdfDoc = await PDFDocument.create();
+      for (const page of doc.pages) {
+        const pdfPage = pdfDoc.addPage([page.size_mm.x, page.size_mm.y]);
+        this.drawGridPdf(pdfPage, doc, page);
+        pdfPage.moveTo(0, pdfPage.getHeight());
+
+        for (const shape of page.shapes) {
+          const stroke = this.getPath(shape.points, "accurate");
+          const d = getSvgPathFromStroke(stroke);
+          pdfPage.drawSvgPath(d, { color: rgb(0, 0, 0) });
+          console.log(d);
+        }
+      }
+
+      if (!doc.fileHandle) {
+        console.error("Export missing filehandle");
+        return;
+      }
+      if (!this.vault) {
+        console.error("Vault missing");
+        return;
+      }
+
+      const replaceExt = (path: string, newExt: string) =>
+        path.replace(/\.[^/.]+$/, "") + newExt;
+
+      const pdfPath = replaceExt(doc.fileHandle.fullPath, ".pdf");
+      const handle = await this.getOrCreateFile(this.vault.rootHandle, pdfPath);
+      const pdfBytes = await pdfDoc.save();
+      const writable = await handle.createWritable();
+      await writable.write(pdfBytes);
+      await writable.close();
+    },
+    async drawGridCanvas(
+      ctx: CanvasRenderingContext2D,
+      doc: Document,
+      page: Page,
+    ) {
+      ctx.lineWidth = this.gridLineThicknessMm * doc.zoom_px_per_mm;
+      ctx.lineCap = "butt";
+      ctx.strokeStyle = doc.gridColor;
+      for (let y = 0; y < page.size_mm.y; y += this.gridLineDistanceMm) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * doc.zoom_px_per_mm);
+        ctx.lineTo(page.size_px.x, y * doc.zoom_px_per_mm);
+        ctx.stroke();
+      }
+    },
+    async drawGridPdf(pdfPage: PDFPage, doc: Document, page: Page) {
+      function hexToRgb(hex: string) {
+        const bigint = parseInt(hex.replace("#", ""), 16);
+        return {
+          r: ((bigint >> 16) & 255) / 255,
+          g: ((bigint >> 8) & 255) / 255,
+          b: (bigint & 255) / 255,
+        };
+      }
+      for (let y = 0; y < page.size_mm.y; y += this.gridLineDistanceMm) {
+        const { r, g, b } = hexToRgb(doc.gridColor);
+        const color = rgb(r, g, b);
+        pdfPage.drawLine({
+          start: { x: 0, y: pdfPage.getHeight() - y },
+          end: { x: page.size_mm.x, y: pdfPage.getHeight() - y },
+          thickness: this.gridLineThicknessMm,
+          color: color,
+        });
+      }
     },
   },
 });

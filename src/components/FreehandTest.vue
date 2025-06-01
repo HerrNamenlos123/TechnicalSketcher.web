@@ -1,13 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { getStroke } from "perfect-freehand";
 import { Vec2 } from "./Vector";
-import { Document, Page, type Point, type Shape } from "./Document";
+import { Document, Page, type Shape } from "./Document";
 import { assert, useStore } from "./store";
-
-const perfectFreehandAccuracyScaling = 10;
-const penSizeMm = 0.3;
-const pageGap = 1.03;
 
 const store = useStore();
 
@@ -21,17 +16,6 @@ const props = defineProps<{
 
 const pageCanvas = ref<HTMLCanvasElement[] | null>(null);
 const viewport = ref<HTMLDivElement | null>(null);
-
-const getPath = (points: Point[], mode: "fast" | "accurate") =>
-  getStroke(points, {
-    size: penSizeMm * perfectFreehandAccuracyScaling,
-    smoothing: 1,
-    streamline: mode === "fast" ? 0.6 : 0.6,
-    thinning: 0.1,
-    // smoothing: 0,
-    // streamline: 0,
-    // thinning: 0,
-  });
 
 const drawShape = (
   ctx: CanvasRenderingContext2D,
@@ -80,10 +64,10 @@ const drawShape = (
     }
   }
 
-  const outline = getPath(points, mode);
+  const outline = store.getPath(points, mode);
 
   const scalingFactor =
-    currentDocument.value.zoom_px_per_mm / perfectFreehandAccuracyScaling;
+    currentDocument.value.zoom_px_per_mm / store.perfectFreehandAccuracyScaling;
 
   ctx.beginPath();
   ctx.moveTo(outline[0][0] * scalingFactor, outline[0][1] * scalingFactor);
@@ -104,7 +88,7 @@ const render = () => {
     page.size_px = page.size_mm
       .mul(currentDocument.value.zoom_px_per_mm)
       .round();
-    currentOffsetY += page.size_px.y * pageGap;
+    currentOffsetY += page.size_px.y * store.pageGap;
 
     // Render page
     renderPage(page);
@@ -126,18 +110,7 @@ const renderPage = (page: Page) => {
     page.offscreenCanvas.height = page.size_px.y;
     // This clears the canvas automatically
 
-    const ctx = page.offscreenCtx;
-    const lineWidthMm = 0.3;
-    const lineDistanceMm = 10;
-    ctx.lineWidth = lineWidthMm * currentDocument.value.zoom_px_per_mm;
-    ctx.lineCap = "butt";
-    ctx.strokeStyle = currentDocument.value.gridColor;
-    for (let y = 0; y < page.size_mm.y; y += lineDistanceMm) {
-      ctx.beginPath();
-      ctx.moveTo(0, y * currentDocument.value.zoom_px_per_mm);
-      ctx.lineTo(page.size_px.x, y * currentDocument.value.zoom_px_per_mm);
-      ctx.stroke();
-    }
+    store.drawGridCanvas(page.offscreenCtx, currentDocument.value, page);
 
     for (const page of currentDocument.value.pages) {
       for (const shape of page.shapes) {
@@ -263,7 +236,7 @@ const findPage = (offsetX: number, offsetY: number) => {
     page.size_px = page.size_mm
       .mul(currentDocument.value.zoom_px_per_mm)
       .round();
-    currentOffsetY += page.size_px.y * pageGap;
+    currentOffsetY += page.size_px.y * store.pageGap;
 
     if (
       offsetX > page.offset_px.x &&
@@ -296,8 +269,8 @@ const pointerDownHandler = (e: PointerEvent) => {
       page.previewShape = {
         points: [
           {
-            x: mousePosMm.x * perfectFreehandAccuracyScaling,
-            y: mousePosMm.y * perfectFreehandAccuracyScaling,
+            x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
+            y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
             pressure: 0.5,
           },
         ],
@@ -328,8 +301,8 @@ const pointerMoveHandler = (e: PointerEvent) => {
     );
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     page.previewShape.points.push({
-      x: mousePosMm.x * perfectFreehandAccuracyScaling,
-      y: mousePosMm.y * perfectFreehandAccuracyScaling,
+      x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
+      y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
       pressure: 0.5,
     });
   }
@@ -357,8 +330,8 @@ const pointerUpHandler = (e: PointerEvent) => {
     );
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     page.previewShape.points.push({
-      x: mousePosMm.x * perfectFreehandAccuracyScaling,
-      y: mousePosMm.y * perfectFreehandAccuracyScaling,
+      x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
+      y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
       pressure: 0.5,
     });
 

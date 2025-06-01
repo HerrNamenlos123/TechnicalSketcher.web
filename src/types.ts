@@ -4,6 +4,7 @@ export type FSFileEntry = {
   type: "file";
   filename: string;
   handle: FileSystemFileHandle;
+  fullPath: string;
 };
 
 export type FSDirEntry = {
@@ -11,6 +12,7 @@ export type FSDirEntry = {
   dirname: string;
   children: (FSFileEntry | FSDirEntry)[];
   handle: FileSystemDirectoryHandle;
+  fullPath: string;
 };
 
 export type VaultFS = {
