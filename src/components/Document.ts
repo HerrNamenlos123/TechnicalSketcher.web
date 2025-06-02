@@ -11,11 +11,12 @@ export type Point = {
 export type Shape = {
   points: Point[];
   lagCompensation?: boolean;
+  penThickness: number;
+  penColor: string;
 };
 
 export class Page {
   previewShape: Shape | undefined;
-  size_mm = new Vec2(210, 297);
   size_px = new Vec2();
   offset_px = new Vec2();
   visibleCanvas?: HTMLCanvasElement;
@@ -34,6 +35,7 @@ export class Page {
   constructor(
     public pageIndex: number,
     public shapes: Shape[] = [],
+    public size_mm = new Vec2(210, 297),
   ) {}
 }
 

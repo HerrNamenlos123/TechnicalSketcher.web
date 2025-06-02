@@ -30,7 +30,11 @@ export type TskFileFormat = {
     pages: {
       shapes: {
         points: Point[];
+        penColor: string;
+        penThickness: number;
       }[];
+      pageWidthMm: number;
+      pageHeightMm: number;
     }[];
   };
 };
