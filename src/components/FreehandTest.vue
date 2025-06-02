@@ -111,7 +111,7 @@ const drawShape = (
   }
 
   ctx.closePath();
-  ctx.fillStyle = "black";
+  ctx.fillStyle = shape.penColor;
   ctx.fill();
 
   ctx.restore();
@@ -428,6 +428,20 @@ const keydown = (e: KeyboardEvent) => {
     } else {
       console.error("Current file has no handle attached");
     }
+  }
+
+  console.log(e);
+  if (e.key === "1") {
+    store.penColor = "#000000";
+  }
+  if (e.key === "2") {
+    store.penColor = "#FF0000";
+  }
+  if (e.key === "3") {
+    store.penColor = "#00FF00";
+  }
+  if (e.key === "4") {
+    store.penColor = "#03c4ff";
   }
 };
 
