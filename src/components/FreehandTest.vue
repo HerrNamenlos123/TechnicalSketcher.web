@@ -316,6 +316,8 @@ const pointerDownHandler = (e: PointerEvent) => {
           },
         ],
         lagCompensation: true,
+        penColor: store.penColor,
+        penThickness: store.penSizeMm,
       };
     }
   }
@@ -378,7 +380,11 @@ const pointerUpHandler = (e: PointerEvent) => {
     });
 
     drawShape(page.offscreenCtx, page, page.previewShape, "accurate");
-    page.shapes.push({ points: page.previewShape.points });
+    page.shapes.push({
+      points: page.previewShape.points,
+      penColor: store.penColor,
+      penThickness: store.penSizeMm,
+    });
     page.previewShape = undefined;
 
     if (page.pageIndex === currentDocument.value.pages.length - 1) {
