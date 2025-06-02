@@ -101,12 +101,15 @@ const drawShape = (
   ctx.imageSmoothingQuality = "high"; // optional: "low", "medium", "high"
   ctx.beginPath();
   ctx.moveTo(outline[0][0] * scalingFactor, outline[0][1] * scalingFactor);
-  for (let i = 1; i < outline.length - 2; i += 2) {
-    const [x1, y1] = outline[i].map((v) => v * scalingFactor);
-    const [x2, y2] = outline[i + 1].map((v) => v * scalingFactor);
-    const [x3, y3] = outline[i + 2].map((v) => v * scalingFactor);
-    ctx.bezierCurveTo(x1, y1, x2, y2, x3, y3);
+
+  for (let i = 1; i < outline.length - 1; i++) {
+    const [x0, y0] = outline[i].map((v) => v * scalingFactor);
+    const [x1, y1] = outline[i + 1].map((v) => v * scalingFactor);
+    const mx = (x0 + x1) / 2;
+    const my = (y0 + y1) / 2;
+    ctx.quadraticCurveTo(x0, y0, mx, my);
   }
+
   ctx.closePath();
   ctx.fillStyle = "black";
   ctx.fill();
