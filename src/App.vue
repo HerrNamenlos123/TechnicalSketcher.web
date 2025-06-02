@@ -34,7 +34,7 @@ onUnmounted(() => {
         <FreehandTest
           v-if="store.currentDocument"
           v-model:document="store.currentDocument"
-          :max-zoom="10"
+          :max-zoom="15"
           :min-zoom="0.1"
           :zoom-sensitivity="0.001"
         />

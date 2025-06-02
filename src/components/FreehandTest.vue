@@ -16,13 +16,16 @@ const props = defineProps<{
 
 const pageCanvas = ref<HTMLCanvasElement[] | null>(null);
 const viewport = ref<HTMLDivElement | null>(null);
+const rerender = ref(false);
 
 const drawShape = (
   ctx: CanvasRenderingContext2D,
+  page: Page,
   shape: Shape,
   mode: "fast" | "accurate",
 ) => {
   const points = [...shape.points];
+  if (!viewport.value) return;
 
   if (shape.lagCompensation) {
     if (shape.points.length >= 3) {
@@ -69,14 +72,46 @@ const drawShape = (
   const scalingFactor =
     currentDocument.value.zoom_px_per_mm / store.perfectFreehandAccuracyScaling;
 
+  const topLeft = new Vec2(page.offset_px.x, page.offset_px.y);
+  const bottomRight = page.offset_px.add(page.size_px);
+
+  if (topLeft.x < 0) {
+    topLeft.x = 0;
+  }
+  if (topLeft.y < 0) {
+    topLeft.y = 0;
+  }
+  if (bottomRight.x > viewport.value.getBoundingClientRect().width) {
+    bottomRight.x = viewport.value.getBoundingClientRect().width;
+  }
+  if (bottomRight.y > viewport.value.getBoundingClientRect().height) {
+    bottomRight.y = viewport.value.getBoundingClientRect().height;
+  }
+
+  ctx.save();
+  ctx.rect(
+    topLeft.x - page.offset_px.x + 5,
+    topLeft.y - page.offset_px.y + 5,
+    bottomRight.x - topLeft.x - 10,
+    bottomRight.y - topLeft.y - 10,
+  );
+  ctx.clip();
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high"; // optional: "low", "medium", "high"
   ctx.beginPath();
   ctx.moveTo(outline[0][0] * scalingFactor, outline[0][1] * scalingFactor);
-  for (let i = 1; i < outline.length; i++) {
-    ctx.lineTo(outline[i][0] * scalingFactor, outline[i][1] * scalingFactor);
+  for (let i = 1; i < outline.length - 2; i += 2) {
+    const [x1, y1] = outline[i].map((v) => v * scalingFactor);
+    const [x2, y2] = outline[i + 1].map((v) => v * scalingFactor);
+    const [x3, y3] = outline[i + 2].map((v) => v * scalingFactor);
+    ctx.bezierCurveTo(x1, y1, x2, y2, x3, y3);
   }
   ctx.closePath();
   ctx.fillStyle = "black";
   ctx.fill();
+
+  ctx.restore();
 };
 
 const render = () => {
@@ -104,8 +139,10 @@ const renderPage = (page: Page) => {
   if (
     !isZooming.value &&
     (page.offscreenCanvas.width !== page.size_px.x ||
-      page.offscreenCanvas.height !== page.size_px.y)
+      page.offscreenCanvas.height !== page.size_px.y ||
+      rerender.value)
   ) {
+    rerender.value = false;
     page.offscreenCanvas.width = page.size_px.x;
     page.offscreenCanvas.height = page.size_px.y;
     // This clears the canvas automatically
@@ -114,7 +151,7 @@ const renderPage = (page: Page) => {
 
     for (const page of currentDocument.value.pages) {
       for (const shape of page.shapes) {
-        drawShape(page.offscreenCtx, shape, "accurate");
+        drawShape(page.offscreenCtx, page, shape, "accurate");
       }
     }
   }
@@ -140,7 +177,7 @@ const renderPage = (page: Page) => {
   );
 
   if (page.previewShape) {
-    drawShape(page.visibleCtx, page.previewShape, "fast");
+    drawShape(page.visibleCtx, page, page.previewShape, "fast");
   }
 };
 
@@ -255,6 +292,7 @@ const pointerDownHandler = (e: PointerEvent) => {
   if (e.pointerType == "touch") {
     pointerEvents.value.push(e);
     updateZoomingPointers();
+    rerender.value = true;
   } else if (e.pointerType == "mouse") {
     //
   } else if (e.pointerType == "pen") {
@@ -319,6 +357,7 @@ const pointerUpHandler = (e: PointerEvent) => {
       pointerEvents.value.splice(index, 1);
     }
     updateZoomingPointers();
+    rerender.value = true;
   } else if (e.pointerType == "mouse") {
     //
   } else if (e.pointerType == "pen") {
@@ -335,7 +374,7 @@ const pointerUpHandler = (e: PointerEvent) => {
       pressure: 0.5,
     });
 
-    drawShape(page.offscreenCtx, page.previewShape, "accurate");
+    drawShape(page.offscreenCtx, page, page.previewShape, "accurate");
     page.shapes.push({ points: page.previewShape.points });
     page.previewShape = undefined;
 

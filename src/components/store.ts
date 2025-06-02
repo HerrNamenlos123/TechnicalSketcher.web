@@ -282,7 +282,6 @@ export const useStore = defineStore("main", {
           const stroke = this.getPath(shape.points, "accurate");
           const d = getSvgPathFromStroke(stroke);
           pdfPage.drawSvgPath(d, { color: rgb(0, 0, 0) });
-          console.log(d);
         }
       }
 
