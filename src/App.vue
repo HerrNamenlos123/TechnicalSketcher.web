@@ -4,12 +4,8 @@ import FreehandTest from "./components/FreehandTest.vue";
 import { onMounted, onUnmounted } from "vue";
 import SideNav from "./components/SideNav.vue";
 import { useStore } from "./components/store";
-import { Document } from "./components/Document";
 
 const store = useStore();
-onMounted(async () => {
-  store.currentDocument = new Document();
-});
 
 const keydown = (e: KeyboardEvent) => {
   if (e.key === "s" && e.ctrlKey) {

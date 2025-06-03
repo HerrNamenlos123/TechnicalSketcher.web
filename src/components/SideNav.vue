@@ -22,6 +22,21 @@ const createFilepath = ref("");
 const openFile = (file: FSFileEntry) => {
   store.loadAndOpenDocument(file);
 };
+
+const exportDone = ref(false);
+
+const exportDoc = async (entry: FSFileEntry) => {
+  const doc = store.openDocuments.find(
+    (d) => d.fileHandle?.fullPath === entry.fullPath,
+  );
+  if (doc) {
+    await store.exportDocumentAsPdf(doc);
+    exportDone.value = true;
+    setTimeout(() => {
+      exportDone.value = false;
+    }, 1000);
+  }
+};
 </script>
 
 <template>
@@ -77,6 +92,22 @@ const openFile = (file: FSFileEntry) => {
             Cancel
           </div>
         </div>
+      </div>
+    </div>
+
+    <div
+      v-if="store.currentDocument?.fileHandle !== undefined"
+      class="w-full flex justify-center mt-4 text-xl relative"
+    >
+      <div
+        class="p-1 border rounded-md cursor-pointer flex items-center gap-2"
+        @click="exportDoc(store.currentDocument.fileHandle)"
+      >
+        <template v-if="!exportDone">
+          Export PDF
+          <BasicIcon icon="PhFilePdf" />
+        </template>
+        <template v-else> Done </template>
       </div>
     </div>
   </div>

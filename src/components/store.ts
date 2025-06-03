@@ -59,7 +59,14 @@ export const useStore = defineStore("main", {
         const entries: (FSFileEntry | FSDirEntry)[] = [];
         for await (const [name, handle] of dirHandle.entries()) {
           if (handle.kind === "file") {
-            if (!name.includes(".crswap")) {
+            let skip = false;
+            if (name.includes(".crswap")) {
+              skip = true;
+            }
+            if (name.includes(".pdf")) {
+              skip = true;
+            }
+            if (!skip) {
               entries.push({
                 type: "file",
                 filename: name,
