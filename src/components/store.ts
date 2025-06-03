@@ -145,7 +145,9 @@ export const useStore = defineStore("main", {
                   penColor: s.penColor,
                   penThickness: s.penThickness,
                 })),
-                new Vec2(p.pageWidthMm, p.pageHeightMm),
+                p.pageWidthMm && p.pageHeightMm
+                  ? new Vec2(p.pageWidthMm, p.pageHeightMm)
+                  : undefined,
               ),
           ),
           input.data.pageColor,
@@ -197,8 +199,8 @@ export const useStore = defineStore("main", {
                 y: point.y / this.perfectFreehandAccuracyScaling,
                 pressure: point.pressure,
               })),
-              penThickness: this.penSizeMm,
-              penColor: this.penColor,
+              penThickness: s.penThickness,
+              penColor: s.penColor,
             })),
             pageWidthMm: p.size_mm.x,
             pageHeightMm: p.size_mm.y,
@@ -247,9 +249,9 @@ export const useStore = defineStore("main", {
       this.saveDocument(doc);
       this.loadVault();
     },
-    getPath(points: Point[], mode: "fast" | "accurate") {
+    getPath(penSize: number, points: Point[], mode: "fast" | "accurate") {
       return getStroke(points, {
-        size: this.penSizeMm * this.perfectFreehandAccuracyScaling,
+        size: penSize * this.perfectFreehandAccuracyScaling,
         smoothing: 1,
         streamline: mode === "fast" ? 0.6 : 0.6,
         thinning: 0.1,
@@ -287,9 +289,14 @@ export const useStore = defineStore("main", {
         pdfPage.moveTo(0, pdfPage.getHeight());
 
         for (const shape of page.shapes) {
-          const stroke = this.getPath(shape.points, "accurate");
+          const stroke = this.getPath(
+            shape.penThickness,
+            shape.points,
+            "accurate",
+          );
           const d = getSvgPathFromStroke(stroke);
-          pdfPage.drawSvgPath(d, { color: rgb(0, 0, 0) });
+          const { r, g, b } = this.hexToRgb(shape.penColor);
+          pdfPage.drawSvgPath(d, { color: rgb(r, g, b) });
         }
       }
 
@@ -327,17 +334,17 @@ export const useStore = defineStore("main", {
         ctx.stroke();
       }
     },
+    hexToRgb(hex: string) {
+      const bigint = parseInt(hex.replace("#", ""), 16);
+      return {
+        r: ((bigint >> 16) & 255) / 255,
+        g: ((bigint >> 8) & 255) / 255,
+        b: (bigint & 255) / 255,
+      };
+    },
     async drawGridPdf(pdfPage: PDFPage, doc: Document, page: Page) {
-      function hexToRgb(hex: string) {
-        const bigint = parseInt(hex.replace("#", ""), 16);
-        return {
-          r: ((bigint >> 16) & 255) / 255,
-          g: ((bigint >> 8) & 255) / 255,
-          b: (bigint & 255) / 255,
-        };
-      }
       for (let y = 0; y < page.size_mm.y; y += this.gridLineDistanceMm) {
-        const { r, g, b } = hexToRgb(doc.gridColor);
+        const { r, g, b } = this.hexToRgb(doc.gridColor);
         const color = rgb(r, g, b);
         pdfPage.drawLine({
           start: { x: 0, y: pdfPage.getHeight() - y },

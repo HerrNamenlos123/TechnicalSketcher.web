@@ -67,7 +67,7 @@ const drawShape = (
     }
   }
 
-  const outline = store.getPath(points, mode);
+  const outline = store.getPath(shape.penThickness, points, mode);
 
   const scalingFactor =
     currentDocument.value.zoom_px_per_mm / store.perfectFreehandAccuracyScaling;
@@ -295,11 +295,12 @@ const pointerDownHandler = (e: PointerEvent) => {
   if (e.pointerType == "touch") {
     pointerEvents.value.push(e);
     updateZoomingPointers();
-    rerender.value = true;
+    // rerender.value = true;
   } else if (e.pointerType == "mouse") {
     //
   } else if (e.pointerType == "pen") {
     e.preventDefault();
+    console.log(e.button, e.buttons);
     const page = findPage(e.offsetX, e.offsetY);
     if (page) {
       const mousePosPx = new Vec2(
@@ -430,7 +431,6 @@ const keydown = (e: KeyboardEvent) => {
     }
   }
 
-  console.log(e);
   if (e.key === "1") {
     store.penColor = "#000000";
   }
@@ -442,6 +442,18 @@ const keydown = (e: KeyboardEvent) => {
   }
   if (e.key === "4") {
     store.penColor = "#03c4ff";
+  }
+  if (e.key === "q") {
+    store.penSizeMm = 0.2;
+  }
+  if (e.key === "w") {
+    store.penSizeMm = 0.3;
+  }
+  if (e.key === "e") {
+    store.penSizeMm = 0.4;
+  }
+  if (e.key === "r") {
+    store.penSizeMm = 0.5;
   }
 };
 
