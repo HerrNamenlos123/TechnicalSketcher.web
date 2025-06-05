@@ -31,12 +31,15 @@ export const useStore = defineStore("main", {
 
       await new Promise((resolve, reject) => {
         const request = indexedDB.open("vault-db", 1);
+        console.log("open");
 
         request.onupgradeneeded = () => {
+          console.log("upgrade");
           request.result.createObjectStore("vault");
         };
 
         request.onsuccess = () => {
+          console.log("success");
           const db = request.result;
           const tx = db.transaction("vault", "readwrite");
           tx.objectStore("vault").put(dirHandle, "dir");
@@ -94,6 +97,12 @@ export const useStore = defineStore("main", {
       return fs;
     },
     async loadVault() {
+      const dbs = await indexedDB.databases();
+      const exists = dbs.some((db) => db.name === "vault-db");
+      if (!exists) {
+        return;
+      }
+
       await new Promise<void>((resolve, reject) => {
         const request = indexedDB.open("vault-db", 1);
 
