@@ -110,5 +110,14 @@ const exportDoc = async (entry: FSFileEntry) => {
         <template v-else> Done </template>
       </div>
     </div>
+
+    <div class="flex items-center gap-2 ml-4 text-xl mt-4">
+      <div>{{ "Page Color" }}</div>
+      <input
+        v-if="store.currentDocument"
+        v-model="store.currentDocument.pageColor"
+        type="color"
+      />
+    </div>
   </div>
 </template>

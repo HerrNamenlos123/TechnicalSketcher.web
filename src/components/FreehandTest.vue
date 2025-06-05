@@ -316,7 +316,7 @@ const pointerDownHandler = (e: PointerEvent) => {
             pressure: 0.5,
           },
         ],
-        lagCompensation: true,
+        lagCompensation: store.lagCompensation,
         penColor: store.penColor,
         penThickness: store.penSizeMm,
       };
@@ -482,10 +482,11 @@ onUnmounted(() => {
       v-for="page in currentDocument.pages"
       :key="page.pageIndex"
       ref="pageCanvas"
-      class="absolute bg-white pointer-events-none"
+      class="absolute pointer-events-none"
       :style="{
         left: page.offset_px.x + 'px',
         top: page.offset_px.y + 'px',
+        backgroundColor: currentDocument.pageColor,
       }"
     />
   </div>

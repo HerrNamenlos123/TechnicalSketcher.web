@@ -23,6 +23,7 @@ export const useStore = defineStore("main", {
     pageGap: 1.03,
     gridLineThicknessMm: 0.3,
     gridLineDistanceMm: 10,
+    lagCompensation: false,
   }),
   actions: {
     async initVault() {
