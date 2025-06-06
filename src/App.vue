@@ -28,8 +28,8 @@ onUnmounted(() => {
       <div class="w-full flex-grow flex">
         <SideNav />
         <FreehandTest
-          v-if="store.currentDocument"
-          v-model:document="store.currentDocument"
+          v-if="store.currentlyOpenDocument"
+          v-model:document="store.currentlyOpenDocument"
           :max-zoom="15"
           :min-zoom="0.1"
           :zoom-sensitivity="0.001"

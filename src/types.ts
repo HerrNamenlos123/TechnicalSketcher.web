@@ -36,5 +36,6 @@ export type TskFileFormat = {
     }[];
     pageWidthMm: number;
     pageHeightMm: number;
+    currentPageIndex: number;
   };
 };

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
 import {
   getCtx,
@@ -8,10 +8,9 @@ import {
   type Page,
   type Shape,
 } from "./Document";
-import { assert, useStore } from "./store";
+import { useStore } from "./store";
 
 const store = useStore();
-const renderIndex = ref(0);
 
 const currentDocument = defineModel<Document>("document", { required: true });
 
@@ -21,13 +20,12 @@ const props = defineProps<{
   zoomSensitivity: number;
 }>();
 
-const pageCanvas = ref<HTMLCanvasElement[] | null>(null);
-const viewport = ref<HTMLDivElement | null>(null);
+const mainCanvas = ref<HTMLCanvasElement>();
+const viewport = ref<HTMLDivElement>();
 
 const drawShape = async (
   ctx: CanvasRenderingContext2D,
   shape: Shape,
-  page: Page,
   document: Document,
   mode: "fast" | "accurate",
 ) => {
@@ -79,8 +77,8 @@ const drawShape = async (
   const scalingFactor =
     currentDocument.value.zoom_px_per_mm / store.perfectFreehandAccuracyScaling;
 
-  const topLeft = new Vec2(page.offset_px.x, page.offset_px.y);
-  const bottomRight = page.offset_px.add(getDocumentSizePx(document));
+  const topLeft = currentDocument.value.offset;
+  const bottomRight = topLeft.add(getDocumentSizePx(document));
 
   if (topLeft.x < 0) {
     topLeft.x = 0;
@@ -96,14 +94,6 @@ const drawShape = async (
   }
 
   ctx.save();
-  ctx.rect(
-    topLeft.x - page.offset_px.x + 5,
-    topLeft.y - page.offset_px.y + 5,
-    bottomRight.x - topLeft.x - 10,
-    bottomRight.y - topLeft.y - 10,
-  );
-  ctx.clip();
-
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high"; // optional: "low", "medium", "high"
   ctx.beginPath();
@@ -124,84 +114,113 @@ const drawShape = async (
   ctx.restore();
 };
 
-const render = async () => {
-  console.log("render start");
-  let currentOffsetY = currentDocument.value.offset.y;
+const createCanvas = () => {
+  const canvas = document.createElement("canvas");
   const pageSize = getDocumentSizePx(currentDocument.value);
-  for (const page of currentDocument.value.pages) {
-    // Setup page
-    assert(page.visibleCanvas);
-    page.offset_px = new Vec2(currentDocument.value.offset.x, currentOffsetY);
-    currentOffsetY += pageSize.y * store.pageGap;
-
-    // Render page
-    await renderPage(page, currentDocument.value);
-  }
-  // requestAnimationFrame(render);
-  renderIndex.value++;
-  console.log("render end");
+  canvas.width = pageSize.x;
+  canvas.height = pageSize.y;
+  store.canvasPool.push({
+    canvas: canvas,
+    pageIndex: undefined,
+  });
+  return canvas;
 };
 
-const renderPage = async (page: Page, doc: Document) => {
-  assert(page.visibleCanvas);
-  assert(page.offscreenCanvas);
+const getCanvasFromPool = (pageIndex: number) => {
+  // First invalidate out of range pages
+  for (const entry of store.canvasPool) {
+    if (
+      entry.pageIndex &&
+      (entry.pageIndex > pageIndex + 4 || entry.pageIndex < pageIndex - 4)
+    ) {
+      entry.pageIndex = undefined;
+    }
+  }
+  // Reuse page if already exists
+  for (const entry of store.canvasPool) {
+    if (entry.pageIndex === pageIndex) {
+      return entry.canvas;
+    }
+  }
+  // Use unused canvas if any exist
+  for (const entry of store.canvasPool) {
+    if (entry.pageIndex === undefined) {
+      entry.pageIndex = pageIndex;
+      return entry.canvas;
+    }
+  }
+  // If all are used, create a new one
+  const canvas = createCanvas();
+  store.canvasPool.push({
+    canvas: canvas,
+    pageIndex: pageIndex,
+  });
+  return canvas;
+};
 
+const render = async () => {
+  if (!currentDocument.value) return;
+  for (let di = -4; di <= 4; di++) {
+    const pageIndex = currentDocument.value.currentPageIndex + di;
+    if (pageIndex > 0 && pageIndex < currentDocument.value?.pages.length) {
+      const page = currentDocument.value.pages[pageIndex];
+
+      const canvas = getCanvasFromPool(pageIndex);
+      await renderPage(canvas, page, currentDocument.value);
+    }
+  }
+  // requestAnimationFrame(render);
+};
+
+const renderPage = async (
+  offCanvas: HTMLCanvasElement,
+  page: Page,
+  doc: Document,
+) => {
   const pageSize = getDocumentSizePx(doc);
+  const offCtx = getCtx(offCanvas);
+  const viewCtx = getCtx(mainCanvas.value);
 
   // Offscreen canvas
   if (
     !isZooming.value &&
-    (page.offscreenCanvas.width !== pageSize.x ||
-      page.offscreenCanvas.height !== pageSize.y ||
-      store.rerenderAllPages)
+    (offCanvas.width !== pageSize.x ||
+      offCanvas.height !== pageSize.y ||
+      store.flushCanvas)
   ) {
-    store.rerenderAllPages = false;
-    page.offscreenCanvas.width = pageSize.x;
-    page.offscreenCanvas.height = pageSize.y;
+    offCanvas.width = pageSize.x;
+    offCanvas.height = pageSize.y;
+    store.flushCanvas = false;
     // This clears the canvas automatically
 
-    await store.drawGridCanvas(
-      getCtx(page.offscreenCanvas),
-      currentDocument.value,
-    );
+    await store.drawGridCanvas(offCtx, currentDocument.value);
 
     for (const page of currentDocument.value.pages) {
       for (const shape of page.shapes) {
-        await drawShape(
-          getCtx(page.offscreenCanvas),
-          shape,
-          page,
-          currentDocument.value,
-          "accurate",
-        );
+        await drawShape(offCtx, shape, currentDocument.value, "accurate");
       }
     }
   }
 
   // Normal canvas
+  if (!mainCanvas.value) {
+    return;
+  }
   if (
-    page.visibleCanvas.width !== pageSize.x ||
-    page.visibleCanvas.height !== pageSize.y
+    mainCanvas.value.width !== pageSize.x ||
+    mainCanvas.value.height !== pageSize.y
   ) {
-    page.visibleCanvas.width = pageSize.x;
-    page.visibleCanvas.height = pageSize.y;
+    mainCanvas.value.width = pageSize.x;
+    mainCanvas.value.height = pageSize.y;
     // This clears the canvas automatically
   }
   // Clear it every frame
-  const visibleCtx = getCtx(page.visibleCanvas);
-  visibleCtx.clearRect(0, 0, pageSize.x, pageSize.y);
+  viewCtx.clearRect(0, 0, pageSize.x, pageSize.y);
 
-  visibleCtx.drawImage(page.offscreenCanvas, 0, 0, pageSize.x, pageSize.y);
-  console.log("drawn to visible");
+  viewCtx.drawImage(offCanvas, 0, 0, pageSize.x, pageSize.y);
 
   if (page.previewShape) {
-    await drawShape(
-      getCtx(page.visibleCanvas),
-      page.previewShape,
-      page,
-      currentDocument.value,
-      "fast",
-    );
+    await drawShape(viewCtx, page.previewShape, currentDocument.value, "fast");
   }
 };
 
@@ -291,20 +310,16 @@ const updateZoomingPointers = () => {
 };
 
 const findPage = (offsetX: number, offsetY: number) => {
-  let currentOffsetY = currentDocument.value.offset.y;
   const pageSize = getDocumentSizePx(currentDocument.value);
-  for (const page of currentDocument.value.pages) {
-    page.offset_px = new Vec2(currentDocument.value.offset.x, currentOffsetY);
-    currentOffsetY += pageSize.y * store.pageGap;
+  const offsetPx = currentDocument.value.offset;
 
-    if (
-      offsetX > page.offset_px.x &&
-      offsetX < page.offset_px.x + pageSize.x &&
-      offsetY > page.offset_px.y &&
-      offsetY < page.offset_px.y + pageSize.y
-    ) {
-      return page;
-    }
+  if (
+    offsetX > offsetPx.x &&
+    offsetX < offsetPx.x + pageSize.x &&
+    offsetY > offsetPx.y &&
+    offsetY < offsetPx.y + pageSize.y
+  ) {
+    return currentDocument.value.pages[currentDocument.value.currentPageIndex];
   }
   return undefined;
 };
@@ -322,9 +337,8 @@ const pointerDownHandler = (e: PointerEvent) => {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page) return;
     if (page && !eraser) {
-      const mousePosPx = new Vec2(
-        e.offsetX - page.offset_px.x,
-        e.offsetY - page.offset_px.y,
+      const mousePosPx = currentDocument.value.offset.sub(
+        new Vec2(e.offsetX, e.offsetY),
       );
       const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
       page.previewShape = {
@@ -360,9 +374,8 @@ const pointerMoveHandler = (e: PointerEvent) => {
     const eraser = (e.buttons & 32) !== 0;
     const page = findPage(e.offsetX, e.offsetY);
     if (!page) return;
-    const mousePosPx = new Vec2(
-      e.offsetX - page.offset_px.x,
-      e.offsetY - page.offset_px.y,
+    const mousePosPx = currentDocument.value.offset.sub(
+      new Vec2(e.offsetX, e.offsetY),
     );
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     if (!eraser) {
@@ -386,7 +399,6 @@ const pointerMoveHandler = (e: PointerEvent) => {
               .mag() < deleteDistance
           ) {
             page.shapes = page.shapes.filter((s) => s !== shape);
-            store.rerenderAllPages = true;
             store.forceRender = true;
             return;
           }
@@ -412,9 +424,8 @@ const pointerUpHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "pen") {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page?.previewShape) return;
-    const mousePosPx = new Vec2(
-      e.offsetX - page.offset_px.x,
-      e.offsetY - page.offset_px.y,
+    const mousePosPx = currentDocument.value.offset.sub(
+      new Vec2(e.offsetX, e.offsetY),
     );
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     page.previewShape.points.push({
@@ -423,13 +434,19 @@ const pointerUpHandler = (e: PointerEvent) => {
       pressure: 0.5,
     });
 
-    drawShape(
-      getCtx(page.offscreenCanvas),
-      page.previewShape,
-      page,
-      currentDocument.value,
-      "accurate",
+    const pooledCanvas = store.canvasPool.find(
+      (e) => e.pageIndex === page.pageIndex,
     );
+    if (pooledCanvas) {
+      drawShape(
+        getCtx(pooledCanvas.canvas),
+        page.previewShape,
+        currentDocument.value,
+        "accurate",
+      );
+    } else {
+      console.warn("Page not found");
+    }
     page.shapes.push({
       points: page.previewShape.points,
       penColor: store.penColor,
@@ -440,7 +457,6 @@ const pointerUpHandler = (e: PointerEvent) => {
     if (page.pageIndex === currentDocument.value.pages.length - 1) {
       currentDocument.value.pages.push({
         pageIndex: currentDocument.value.pages.length,
-        offset_px: new Vec2(),
         shapes: [],
       });
     }
@@ -450,13 +466,6 @@ const pointerUpHandler = (e: PointerEvent) => {
   store.forceRender = true;
 };
 
-const makeOffscreenCanvas = (size: Vec2) => {
-  const offscreen = document.createElement("canvas");
-  offscreen.width = size.x;
-  offscreen.height = size.y;
-  return offscreen;
-};
-
 watch(
   () => store.forceRender,
   () => {
@@ -464,25 +473,6 @@ watch(
       store.forceRender = false;
       render();
     }
-  },
-  { immediate: true },
-);
-
-watch(
-  [
-    () => currentDocument.value,
-    () => currentDocument.value.pages.length,
-    // () => store.renderIndex,
-  ],
-  async () => {
-    await nextTick();
-    if (!pageCanvas.value) return;
-    for (let i = 0; i < currentDocument.value.pages.length; i++) {
-      const page = currentDocument.value.pages[i];
-      page.visibleCanvas = pageCanvas.value[i];
-      page.offscreenCanvas = makeOffscreenCanvas(new Vec2(0, 0));
-    }
-    store.forceRender = true;
   },
   { immediate: true },
 );
@@ -525,9 +515,31 @@ const keydown = (e: KeyboardEvent) => {
 
 onMounted(() => {
   window.addEventListener("keydown", keydown);
+  while (store.canvasPool.length < 10) {
+    store.canvasPool.push({
+      canvas: createCanvas(),
+      pageIndex: undefined,
+    });
+  }
 });
+
+watch(
+  [() => mainCanvas.value, () => currentDocument.value.size_mm],
+  () => {
+    if (mainCanvas.value) {
+      const pageSize = getDocumentSizePx(currentDocument.value);
+      mainCanvas.value.width = pageSize.x;
+      mainCanvas.value.height = pageSize.y;
+    }
+  },
+  { immediate: true, deep: true },
+);
+
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
+  for (const entry of store.canvasPool) {
+    entry.pageIndex = -1;
+  }
 });
 </script>
 
@@ -545,13 +557,11 @@ onUnmounted(() => {
     @wheel="handleWheel"
   >
     <canvas
-      v-for="page in currentDocument.pages"
-      :key="page.pageIndex"
-      ref="pageCanvas"
+      ref="mainCanvas"
       class="absolute pointer-events-none"
       :style="{
-        left: page.offset_px.x + 'px',
-        top: page.offset_px.y + 'px',
+        left: currentDocument.offset.x + 'px',
+        top: currentDocument.offset.y + 'px',
         backgroundColor: currentDocument.pageColor,
       }"
     />

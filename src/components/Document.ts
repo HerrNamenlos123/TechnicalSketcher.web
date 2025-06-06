@@ -17,9 +17,6 @@ export type Shape = {
 
 export type Page = {
   previewShape?: Shape;
-  offset_px: Vec2;
-  visibleCanvas?: HTMLCanvasElement;
-  offscreenCanvas?: HTMLCanvasElement;
   pageIndex: number;
   shapes: Shape[];
 }
@@ -30,7 +27,7 @@ export function getCtx(canvas: HTMLCanvasElement | undefined) {
 }
 
 export const DEFAULT_GRID_COLOR = "#37e6cf98";
-export const DEFAULT_PAGE_COLOR = "#FFF";
+export const DEFAULT_PAGE_COLOR = "#D2B48C";
 export const DEFAULT_ZOOM_PX_PER_MM = 5;
 export const DEFAULT_PAGE_SIZE = new Vec2(210, 297);
 export const DEFAULT_DOCUMENT_OFFSET = new Vec2(300, 100);
@@ -44,6 +41,7 @@ export type Document = {
   zoom_px_per_mm: number;
   fileHandle?: FSFileEntry;
   size_mm: Vec2;
+  currentPageIndex: number;
 }
 
 export function getDocumentSizePx(doc: Document) {

@@ -50,14 +50,14 @@ const exportDoc = async (entry: FSFileEntry) => {
 };
 
 const setPageWidth = (x: number) => {
-  if (!store.currentDocument) return;
-  store.currentDocument.size_mm.x = x;
+  if (!store.currentlyOpenDocument) return;
+  store.currentlyOpenDocument.size_mm.x = x;
   store.forceRender = true;
 };
 
 const setPageHeight = (y: number) => {
-  if (!store.currentDocument) return;
-  store.currentDocument.size_mm.y = y;
+  if (!store.currentlyOpenDocument) return;
+  store.currentlyOpenDocument.size_mm.y = y;
   store.forceRender = true;
 };
 </script>
@@ -119,12 +119,12 @@ const setPageHeight = (y: number) => {
     </div>
 
     <div
-      v-if="store.currentDocument?.fileHandle !== undefined"
+      v-if="store.currentlyOpenDocument?.fileHandle !== undefined"
       class="w-full flex justify-center mt-4 text-xl relative"
     >
       <div
         class="p-1 border rounded-md cursor-pointer flex items-center gap-2"
-        @click="exportDoc(store.currentDocument.fileHandle)"
+        @click="exportDoc(store.currentlyOpenDocument.fileHandle)"
       >
         <template v-if="!exportDone">
           Export PDF
@@ -135,26 +135,26 @@ const setPageHeight = (y: number) => {
     </div>
 
     <div
-      v-if="store.currentDocument"
+      v-if="store.currentlyOpenDocument"
       class="flex items-center gap-2 ml-4 text-xl mt-4"
     >
       <div>{{ "Page Color" }}</div>
       <input
-        v-if="store.currentDocument"
-        v-model="store.currentDocument.pageColor"
+        v-if="store.currentlyOpenDocument"
+        v-model="store.currentlyOpenDocument.pageColor"
         class="bg-background border"
         type="color"
       />
     </div>
     <div
-      v-if="(store.currentDocument?.pages.length || 0) > 0"
+      v-if="(store.currentlyOpenDocument?.pages.length || 0) > 0"
       class="flex items-center gap-2 ml-4 text-xl mt-4"
     >
       <div>{{ "Page Width" }}</div>
       <input
         class="w-16 bg-black border"
         type="text"
-        :value="store.currentDocument?.size_mm.x"
+        :value="store.currentlyOpenDocument?.size_mm.x"
         @input="
           (e) => setPageWidth(Number((e.target as HTMLInputElement).value))
         "
@@ -162,14 +162,14 @@ const setPageHeight = (y: number) => {
       <div>{{ "mm" }}</div>
     </div>
     <div
-      v-if="(store.currentDocument?.pages.length || 0) > 0"
+      v-if="(store.currentlyOpenDocument?.pages.length || 0) > 0"
       class="flex items-center gap-2 ml-4 text-xl mt-4"
     >
       <div>{{ "Page Height" }}</div>
       <input
         class="w-16 bg-black border"
         type="text"
-        :value="store.currentDocument?.size_mm.y"
+        :value="store.currentlyOpenDocument?.size_mm.y"
         @input="
           (e) => setPageHeight(Number((e.target as HTMLInputElement).value))
         "

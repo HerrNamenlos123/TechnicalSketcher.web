@@ -16,7 +16,7 @@ export const useStore = defineStore("main", {
   state: () => ({
     vault: undefined as VaultFS | undefined,
     openDocuments: [] as Document[],
-    currentDocument: undefined as Document | undefined,
+    currentlyOpenDocument: undefined as Document | undefined,
     penSizeMm: 0.3,
     penColor: "#000000",
     perfectFreehandAccuracyScaling: 10,
@@ -24,8 +24,12 @@ export const useStore = defineStore("main", {
     gridLineThicknessMm: 0.3,
     gridLineDistanceMm: 10,
     lagCompensation: false,
-    rerenderAllPages: false,
     forceRender: false,
+    flushCanvas: false,
+    canvasPool: [] as {
+      canvas: HTMLCanvasElement,
+      pageIndex?: number,
+    }[],
   }),
   actions: {
     async initVault() {
@@ -162,9 +166,6 @@ export const useStore = defineStore("main", {
                 penThickness: s.penThickness,
               })),
               previewShape: undefined,
-              offset_px: new Vec2(),
-              offscreenCanvas: undefined,
-              visibleCanvas: undefined,
             }),
           ),
           size_mm:
@@ -175,6 +176,7 @@ export const useStore = defineStore("main", {
           offset: DEFAULT_DOCUMENT_OFFSET,
           zoom_px_per_mm: 5,
           fileHandle: filehandle,
+          currentPageIndex: input.data.currentPageIndex ?? 0,
         };
         return document;
       } catch (e: unknown) {
@@ -194,14 +196,14 @@ export const useStore = defineStore("main", {
           newDoc?.fileHandle?.filename
         ) {
           this.openDocuments[i] = newDoc;
-          this.currentDocument = newDoc;
+          this.currentlyOpenDocument = newDoc;
           return;
         }
       }
 
       // No match
       this.openDocuments.push(newDoc);
-      this.currentDocument = newDoc;
+      this.currentlyOpenDocument = newDoc;
     },
     async saveDocument(document: Document) {
       const output: TskFileFormat = {
@@ -224,6 +226,7 @@ export const useStore = defineStore("main", {
           })),
           pageWidthMm: document.size_mm.x,
           pageHeightMm: document.size_mm.y,
+          currentPageIndex: document.currentPageIndex,
         },
       };
 
@@ -263,11 +266,11 @@ export const useStore = defineStore("main", {
         offset: new Vec2(300, 100),
         pageColor: DEFAULT_PAGE_COLOR,
         pages: [{
-          offset_px: new Vec2(0, 0),
-          pageIndex: 0, previewShape: undefined, shapes: [], offscreenCanvas: undefined, visibleCanvas: undefined
+          pageIndex: 0, previewShape: undefined, shapes: [],
         }],
         zoom_px_per_mm: DEFAULT_ZOOM_PX_PER_MM,
         size_mm: DEFAULT_PAGE_SIZE,
+        currentPageIndex: 0,
       };
       doc.fileHandle = {
         handle: filehandle,
