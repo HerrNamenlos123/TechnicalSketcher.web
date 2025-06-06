@@ -19,9 +19,20 @@ const store = useStore();
 const createDocumentPopup = ref(false);
 const createFilepath = ref("");
 
-const openFile = (file: FSFileEntry) => {
-  store.loadAndOpenDocument(file);
+const openFile = async (file: FSFileEntry) => {
+  await store.loadAndOpenDocument(file);
 };
+
+// const a = () => {
+//   // if (store.currentDocument) {
+//   //   // console.log("doc", store.currentDocument.pages);
+//   //   // for (const page of store.currentDocument.pages) {
+//   //   //   console.log(page);
+//   //   // }
+//   // }
+//   setTimeout(a, 1000);
+// };
+// a();
 
 const exportDone = ref(false);
 
@@ -36,6 +47,18 @@ const exportDoc = async (entry: FSFileEntry) => {
       exportDone.value = false;
     }, 1000);
   }
+};
+
+const setPageWidth = (x: number) => {
+  if (!store.currentDocument) return;
+  store.currentDocument.size_mm.x = x;
+  store.forceRender = true;
+};
+
+const setPageHeight = (y: number) => {
+  if (!store.currentDocument) return;
+  store.currentDocument.size_mm.y = y;
+  store.forceRender = true;
 };
 </script>
 
@@ -111,13 +134,47 @@ const exportDoc = async (entry: FSFileEntry) => {
       </div>
     </div>
 
-    <div class="flex items-center gap-2 ml-4 text-xl mt-4">
+    <div
+      v-if="store.currentDocument"
+      class="flex items-center gap-2 ml-4 text-xl mt-4"
+    >
       <div>{{ "Page Color" }}</div>
       <input
         v-if="store.currentDocument"
         v-model="store.currentDocument.pageColor"
+        class="bg-background border"
         type="color"
       />
+    </div>
+    <div
+      v-if="(store.currentDocument?.pages.length || 0) > 0"
+      class="flex items-center gap-2 ml-4 text-xl mt-4"
+    >
+      <div>{{ "Page Width" }}</div>
+      <input
+        class="w-16 bg-black border"
+        type="text"
+        :value="store.currentDocument?.size_mm.x"
+        @input="
+          (e) => setPageWidth(Number((e.target as HTMLInputElement).value))
+        "
+      />
+      <div>{{ "mm" }}</div>
+    </div>
+    <div
+      v-if="(store.currentDocument?.pages.length || 0) > 0"
+      class="flex items-center gap-2 ml-4 text-xl mt-4"
+    >
+      <div>{{ "Page Height" }}</div>
+      <input
+        class="w-16 bg-black border"
+        type="text"
+        :value="store.currentDocument?.size_mm.y"
+        @input="
+          (e) => setPageHeight(Number((e.target as HTMLInputElement).value))
+        "
+      />
+      <div>{{ "mm" }}</div>
     </div>
   </div>
 </template>

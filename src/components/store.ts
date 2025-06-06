@@ -1,6 +1,6 @@
 import type { FSDirEntry, FSFileEntry, TskFileFormat, VaultFS } from "@/types";
 import { defineStore } from "pinia";
-import { Page, Document, type Point } from "./Document";
+import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, getDocumentSizePx, DEFAULT_DOCUMENT_OFFSET } from "./Document";
 import { Vec2 } from "./Vector";
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import getStroke from "perfect-freehand";
@@ -24,6 +24,8 @@ export const useStore = defineStore("main", {
     gridLineThicknessMm: 0.3,
     gridLineDistanceMm: 10,
     lagCompensation: false,
+    rerenderAllPages: false,
+    forceRender: false,
   }),
   actions: {
     async initVault() {
@@ -32,15 +34,12 @@ export const useStore = defineStore("main", {
 
       await new Promise((resolve, reject) => {
         const request = indexedDB.open("vault-db", 1);
-        console.log("open");
 
         request.onupgradeneeded = () => {
-          console.log("upgrade");
           request.result.createObjectStore("vault");
         };
 
         request.onsuccess = () => {
-          console.log("success");
           const db = request.result;
           const tx = db.transaction("vault", "readwrite");
           tx.objectStore("vault").put(dirHandle, "dir");
@@ -118,7 +117,7 @@ export const useStore = defineStore("main", {
             if (
               dirHandle &&
               (await dirHandle.queryPermission({ mode: "readwrite" })) ===
-                "granted"
+              "granted"
             ) {
               useStore().vault = await this.readVault(dirHandle);
             }
@@ -148,32 +147,35 @@ export const useStore = defineStore("main", {
           return undefined;
         }
 
-        const document: Document = new Document(
-          input.data.pages.map(
-            (p, i) =>
-              new Page(
-                i,
-                p.shapes.map((s) => ({
-                  points: s.points.map((point) => ({
-                    x: point.x * this.perfectFreehandAccuracyScaling,
-                    y: point.y * this.perfectFreehandAccuracyScaling,
-                    pressure: point.pressure,
-                  })),
-                  penColor: s.penColor,
-                  penThickness: s.penThickness,
+        const document: Document = {
+          pages: input.data.pages.map(
+            (p, i): Page =>
+            ({
+              pageIndex: i,
+              shapes: p.shapes.map((s) => ({
+                points: s.points.map((point) => ({
+                  x: point.x * this.perfectFreehandAccuracyScaling,
+                  y: point.y * this.perfectFreehandAccuracyScaling,
+                  pressure: point.pressure,
                 })),
-                p.pageWidthMm && p.pageHeightMm
-                  ? new Vec2(p.pageWidthMm, p.pageHeightMm)
-                  : undefined,
-              ),
+                penColor: s.penColor,
+                penThickness: s.penThickness,
+              })),
+              previewShape: undefined,
+              offset_px: new Vec2(),
+              offscreenCanvas: undefined,
+              visibleCanvas: undefined,
+            }),
           ),
-          input.data.pageColor,
-          input.data.gridColor,
-          input.data.gridType,
-          new Vec2(300, 100),
-          5,
-          filehandle,
-        );
+          size_mm:
+            new Vec2(input.data.pageWidthMm ?? DEFAULT_PAGE_SIZE.x, input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y),
+          pageColor: input.data.pageColor,
+          gridColor: input.data.gridColor,
+          gridType: input.data.gridType,
+          offset: DEFAULT_DOCUMENT_OFFSET,
+          zoom_px_per_mm: 5,
+          fileHandle: filehandle,
+        };
         return document;
       } catch (e: unknown) {
         console.error(e);
@@ -219,9 +221,9 @@ export const useStore = defineStore("main", {
               penThickness: s.penThickness,
               penColor: s.penColor,
             })),
-            pageWidthMm: p.size_mm.x,
-            pageHeightMm: p.size_mm.y,
           })),
+          pageWidthMm: document.size_mm.x,
+          pageHeightMm: document.size_mm.y,
         },
       };
 
@@ -255,7 +257,18 @@ export const useStore = defineStore("main", {
         path,
       );
 
-      const doc = new Document([new Page(0)]);
+      const doc: Document = {
+        gridColor: DEFAULT_GRID_COLOR,
+        gridType: "lines",
+        offset: new Vec2(300, 100),
+        pageColor: DEFAULT_PAGE_COLOR,
+        pages: [{
+          offset_px: new Vec2(0, 0),
+          pageIndex: 0, previewShape: undefined, shapes: [], offscreenCanvas: undefined, visibleCanvas: undefined
+        }],
+        zoom_px_per_mm: DEFAULT_ZOOM_PX_PER_MM,
+        size_mm: DEFAULT_PAGE_SIZE,
+      };
       doc.fileHandle = {
         handle: filehandle,
         filename: path.split("/").pop()!,
@@ -301,8 +314,8 @@ export const useStore = defineStore("main", {
 
       const pdfDoc = await PDFDocument.create();
       for (const page of doc.pages) {
-        const pdfPage = pdfDoc.addPage([page.size_mm.x, page.size_mm.y]);
-        this.drawGridPdf(pdfPage, doc, page);
+        const pdfPage = pdfDoc.addPage([doc.size_mm.x, doc.size_mm.y]);
+        this.drawGridPdf(pdfPage, doc);
         pdfPage.moveTo(0, pdfPage.getHeight());
 
         for (const shape of page.shapes) {
@@ -339,15 +352,14 @@ export const useStore = defineStore("main", {
     async drawGridCanvas(
       ctx: CanvasRenderingContext2D,
       doc: Document,
-      page: Page,
     ) {
       ctx.lineWidth = this.gridLineThicknessMm * doc.zoom_px_per_mm;
       ctx.lineCap = "butt";
       ctx.strokeStyle = doc.gridColor;
-      for (let y = 0; y < page.size_mm.y; y += this.gridLineDistanceMm) {
+      for (let y = 0; y < doc.size_mm.y; y += this.gridLineDistanceMm) {
         ctx.beginPath();
         ctx.moveTo(0, y * doc.zoom_px_per_mm);
-        ctx.lineTo(page.size_px.x, y * doc.zoom_px_per_mm);
+        ctx.lineTo(getDocumentSizePx(doc).x, y * doc.zoom_px_per_mm);
         ctx.stroke();
       }
     },
@@ -359,13 +371,13 @@ export const useStore = defineStore("main", {
         b: (bigint & 255) / 255,
       };
     },
-    async drawGridPdf(pdfPage: PDFPage, doc: Document, page: Page) {
-      for (let y = 0; y < page.size_mm.y; y += this.gridLineDistanceMm) {
+    async drawGridPdf(pdfPage: PDFPage, doc: Document) {
+      for (let y = 0; y < doc.size_mm.y; y += this.gridLineDistanceMm) {
         const { r, g, b } = this.hexToRgb(doc.gridColor);
         const color = rgb(r, g, b);
         pdfPage.drawLine({
           start: { x: 0, y: pdfPage.getHeight() - y },
-          end: { x: page.size_mm.x, y: pdfPage.getHeight() - y },
+          end: { x: doc.size_mm.x, y: pdfPage.getHeight() - y },
           thickness: this.gridLineThicknessMm,
           color: color,
         });

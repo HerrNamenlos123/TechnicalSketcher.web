@@ -15,40 +15,39 @@ export type Shape = {
   penColor: string;
 };
 
-export class Page {
-  previewShape: Shape | undefined;
-  size_px = new Vec2();
-  offset_px = new Vec2();
+export type Page = {
+  previewShape?: Shape;
+  offset_px: Vec2;
   visibleCanvas?: HTMLCanvasElement;
   offscreenCanvas?: HTMLCanvasElement;
-
-  get visibleCtx() {
-    assert(this.visibleCanvas);
-    return this.visibleCanvas.getContext("2d")!;
-  }
-
-  get offscreenCtx() {
-    assert(this.offscreenCanvas);
-    return this.offscreenCanvas.getContext("2d")!;
-  }
-
-  constructor(
-    public pageIndex: number,
-    public shapes: Shape[] = [],
-    public size_mm = new Vec2(210, 297),
-  ) {}
+  pageIndex: number;
+  shapes: Shape[];
 }
 
-export class Document {
-  constructor(
-    public pages: Page[] = [],
-    public pageColor: string = "#FFFFFF",
-    public gridColor: string = "#37e6cf98",
-    public gridType = "lines" as "lines" | "dots",
-    public offset = new Vec2(0, 0),
-    public zoom_px_per_mm = 5,
-    public fileHandle?: FSFileEntry,
-  ) {
-    // this.gridColor = "#37e6cf98";
-  }
+export function getCtx(canvas: HTMLCanvasElement | undefined) {
+  assert(canvas);
+  return canvas.getContext("2d")!;
+}
+
+export const DEFAULT_GRID_COLOR = "#37e6cf98";
+export const DEFAULT_PAGE_COLOR = "#FFF";
+export const DEFAULT_ZOOM_PX_PER_MM = 5;
+export const DEFAULT_PAGE_SIZE = new Vec2(210, 297);
+export const DEFAULT_DOCUMENT_OFFSET = new Vec2(300, 100);
+
+export type Document = {
+  pages: Page[];
+  pageColor: string;
+  gridColor: string;
+  gridType: "lines" | "dots";
+  offset: Vec2;
+  zoom_px_per_mm: number;
+  fileHandle?: FSFileEntry;
+  size_mm: Vec2;
+}
+
+export function getDocumentSizePx(doc: Document) {
+  return doc.size_mm
+    .mul(doc.zoom_px_per_mm)
+    .round();
 }

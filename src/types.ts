@@ -33,8 +33,8 @@ export type TskFileFormat = {
         penColor: string;
         penThickness: number;
       }[];
-      pageWidthMm: number;
-      pageHeightMm: number;
     }[];
+    pageWidthMm: number;
+    pageHeightMm: number;
   };
 };
