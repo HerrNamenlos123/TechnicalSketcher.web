@@ -32,7 +32,8 @@ export function getCtx(canvas: HTMLCanvasElement | undefined) {
   return canvas.getContext("2d")!;
 }
 
-export const DEFAULT_GRID_COLOR = "#37e6cf98";
+// export const DEFAULT_GRID_COLOR = "#37e6cf98";
+export const DEFAULT_GRID_COLOR = "#5252524f";
 export const DEFAULT_PAGE_COLOR = "#ffffff";
 export const DEFAULT_ZOOM_PX_PER_MM = 5;
 export const DEFAULT_PAGE_SIZE = new Vec2(148, 210);
