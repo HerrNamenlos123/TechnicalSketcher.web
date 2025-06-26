@@ -77,7 +77,10 @@ const drawShape = async (
   const scalingFactor =
     currentDocument.value.zoom_px_per_mm / store.perfectFreehandAccuracyScaling;
 
-  const topLeft = currentDocument.value.offset;
+  const topLeft = new Vec2(
+    currentDocument.value.offset.x,
+    currentDocument.value.offset.y,
+  );
   const bottomRight = topLeft.add(getDocumentSizePx(document));
 
   if (topLeft.x < 0) {
@@ -212,11 +215,9 @@ const renderPage = async (
   viewCtx.clearRect(0, 0, pageSize.x, pageSize.y);
 
   viewCtx.drawImage(offCanvas, 0, 0, pageSize.x, pageSize.y);
-  console.log("Rendering main canvas");
 
   if (page.previewShape) {
     await drawShape(viewCtx, page.previewShape, currentDocument.value, "fast");
-    console.log("Rendering preview shape");
   }
 };
 
@@ -511,9 +512,12 @@ const keydown = (e: KeyboardEvent) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener("keydown", keydown);
   store.currentPageCanvas = createCanvas();
+  await nextTick();
+  await nextTick();
+  render();
 });
 
 watch(
