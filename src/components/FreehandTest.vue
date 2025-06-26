@@ -15,6 +15,19 @@ const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 const store = useStore();
 const currentDocument = defineModel<Document>("document", { required: true });
 
+const colors = [
+  "#000000", // Jet Black
+  "#1D4ED8", // Royal Blue
+  "#DC2626", // Crimson Red
+  "#16A34A", // Emerald Green
+  "#CA8A04", // Goldenrod
+  "#9333EA", // Vivid Violet
+  "#F97316", // Bright Orange
+  "#6B7280", // Slate Gray
+];
+
+const penThicknesses = [0.2, 0.3, 0.4, 0.5, 0.7];
+
 const props = defineProps<{
   maxZoom: number;
   minZoom: number;
@@ -23,6 +36,7 @@ const props = defineProps<{
 
 const mainCanvas = ref<HTMLCanvasElement>();
 const viewport = ref<HTMLDivElement>();
+const contextPopupPosPx = ref<undefined | Vec2>();
 
 const drawShape = async (
   ctx: CanvasRenderingContext2D,
@@ -462,6 +476,7 @@ function circleOutlineIntersectsLine(
 
 const pointerDownHandler = (e: PointerEvent) => {
   if (!viewport.value || !mainCanvas.value) return;
+  contextPopupPosPx.value = undefined;
   if (e.pointerType == "touch") {
     pointerEvents.value.push(e);
     updateZoomingPointers();
@@ -471,7 +486,6 @@ const pointerDownHandler = (e: PointerEvent) => {
     e.preventDefault();
     const eraser = (e.buttons & 32) !== 0;
     const backButton = (e.buttons & 2) !== 0;
-    const page = findPage(e.offsetX, e.offsetY);
     const topLeft = new Vec2(
       mainCanvas.value.getBoundingClientRect().left -
         viewport.value.getBoundingClientRect().left,
@@ -480,23 +494,11 @@ const pointerDownHandler = (e: PointerEvent) => {
     );
     const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
-    if (!page) return;
     if (backButton) {
       contextClickPositionPx.value = mousePosPx;
-    } else if (!eraser) {
-      page.previewShape = {
-        points: [
-          {
-            x: mousePosMm.x,
-            y: mousePosMm.y,
-            pressure: 0.5,
-          },
-        ],
-        lagCompensation: store.lagCompensation,
-        penColor: store.penColor,
-        penThickness: store.penSizeMm,
-      };
     } else if (eraser) {
+      const page = findPage(e.offsetX, e.offsetY);
+      if (!page) return;
       page.previewShape = undefined;
       eraserSizePx.value = store.eraserSizePx;
       eraserPosPx.value = mousePosMm.mul(currentDocument.value.zoom_px_per_mm);
@@ -526,6 +528,21 @@ const pointerDownHandler = (e: PointerEvent) => {
           }
         }
       }
+    } else {
+      const page = findPage(e.offsetX, e.offsetY);
+      if (!page) return;
+      page.previewShape = {
+        points: [
+          {
+            x: mousePosMm.x,
+            y: mousePosMm.y,
+            pressure: 0.5,
+          },
+        ],
+        lagCompensation: store.lagCompensation,
+        penColor: store.penColor,
+        penThickness: store.penSizeMm,
+      };
     }
   }
   store.forceRender = true;
@@ -635,6 +652,13 @@ const pointerUpHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "mouse") {
     //
   } else if (e.pointerType == "pen") {
+    const topLeft = new Vec2(
+      mainCanvas.value.getBoundingClientRect().left -
+        viewport.value.getBoundingClientRect().left,
+      mainCanvas.value.getBoundingClientRect().top -
+        viewport.value.getBoundingClientRect().top,
+    );
+    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
     const page = findPage(e.offsetX, e.offsetY);
     if (contextClickPositionPx.value) {
       e.preventDefault();
@@ -646,7 +670,12 @@ const pointerUpHandler = (e: PointerEvent) => {
         perimeterPx += distPx;
       }
       if (perimeterPx <= CONTEXT_MENU_PERIMETER_LIMIT_PX) {
-        console.log("Popup");
+        contextPopupPosPx.value = mousePosPx;
+        nextTick(() => {
+          nextTick(() => {
+            contextPopupRef.value?.focus();
+          });
+        });
       } else {
         console.log("Select");
       }
@@ -725,34 +754,6 @@ const keydown = (e: KeyboardEvent) => {
       console.error("Current file has no handle attached");
     }
   }
-
-  if (e.key === "1") {
-    store.penColor = "#000000";
-  }
-  if (e.key === "2") {
-    store.penColor = "#FF0000";
-  }
-  if (e.key === "3") {
-    store.penColor = "#00FF00";
-  }
-  if (e.key === "4") {
-    store.penColor = "#03c4ff";
-  }
-  if (e.key === "q") {
-    store.penSizeMm = 0.2;
-  }
-  if (e.key === "w") {
-    store.penSizeMm = 0.3;
-  }
-  if (e.key === "e") {
-    store.penSizeMm = 0.4;
-  }
-  if (e.key === "r") {
-    store.penSizeMm = 0.5;
-  }
-  if (e.key === "t") {
-    store.penSizeMm = 5;
-  }
 };
 
 onMounted(async () => {
@@ -786,6 +787,8 @@ onUnmounted(() => {
   //   entry.pageIndex = -1;
   // }
 });
+
+const contextPopupRef = ref<HTMLDivElement | undefined>();
 </script>
 
 <template>
@@ -805,7 +808,7 @@ onUnmounted(() => {
     <img class="w-full h-full object-cover" src="/table-tiling-2.jpg" />
     <canvas
       ref="mainCanvas"
-      class="absolute pointer-events-none rounded-r-3xl"
+      class="absolute pointer-events-none rounded-r-3xl shadow-black shadow-md"
       :style="{
         backgroundColor: currentDocument.pageColor,
         left: currentDocument.offset.x + 'px',
@@ -818,5 +821,92 @@ onUnmounted(() => {
           'px',
       }"
     />
+    <div
+      v-if="contextPopupPosPx"
+      ref="contextPopupRef"
+      class="absolute w-0 h-0 outline-none focus:outline-none"
+      :style="{
+        left: currentDocument.offset.x + contextPopupPosPx.x + 'px',
+        top: currentDocument.offset.y + contextPopupPosPx.y + 'px',
+      }"
+      :tabindex="0"
+      @blur="contextPopupPosPx = undefined"
+      @click="contextPopupPosPx = undefined"
+    >
+      <div
+        class="-translate-x-1/2 -translate-y-1/2 w-fit flex flex-col gap-12 items-center"
+      >
+        <div
+          id="penColor"
+          class="flex bg-white p-2 gap-2 w-fit rounded-md border border-black"
+        >
+          <div
+            v-for="color in colors"
+            :key="color"
+            class="cursor-pointer"
+            @click.stop.prevent="
+              () => {
+                store.penColor = color;
+                contextPopupPosPx = undefined;
+              }
+            "
+            @pointercancel.stop.prevent
+            @pointerdown.stop.prevent
+            @pointerleave.stop.prevent
+            @pointermove.stop.prevent
+            @pointerup.stop.prevent
+          >
+            <div
+              class="rounded-full w-5 h-5"
+              :style="{
+                backgroundColor: color,
+              }"
+            />
+          </div>
+        </div>
+        <div
+          id="penSize"
+          class="flex bg-white w-fit rounded-md border border-black p-1 gap-1"
+        >
+          <div
+            v-for="thickness in penThicknesses"
+            :key="thickness"
+            class="cursor-pointer"
+            @click.stop.prevent="
+              () => {
+                store.penSizeMm = thickness;
+                contextPopupPosPx = undefined;
+              }
+            "
+            @pointercancel.stop.prevent
+            @pointerdown.stop.prevent
+            @pointerleave.stop.prevent
+            @pointermove.stop.prevent
+            @pointerup.stop.prevent
+          >
+            <svg
+              fill="none"
+              height="30"
+              viewBox="0 0 120 60"
+              width="30"
+              xmlns="http://www.w3.org/2000/svg"
+              :style="{
+                '--pen-thickness': thickness * 10,
+              }"
+            >
+              <!-- --pen-thickness: thickness -->
+              <path
+                d="M10 50 C 40 0, 80 60, 110 10"
+                fill="none"
+                stroke="black"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="var(--pen-thickness)"
+              />
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
