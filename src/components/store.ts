@@ -1,6 +1,6 @@
 import type { FSDirEntry, FSFileEntry, TskFileFormat, VaultFS } from "@/types";
 import { defineStore } from "pinia";
-import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, getDocumentSizePx, DEFAULT_DOCUMENT_OFFSET } from "./Document";
+import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, getDocumentSizePx, DEFAULT_DOCUMENT_OFFSET, type BBox, type Shape } from "./Document";
 import { Vec2 } from "./Vector";
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import getStroke from "perfect-freehand";
@@ -13,6 +13,46 @@ export function assert<T>(
   message?: string,
 ): asserts value is T {
   if (!value) throw new Error(message ?? "Assertion failed");
+}
+
+export function loadImageAsync(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+export function isPointInBBox(bbox: BBox, point: Vec2) {
+  return point.x >= bbox.left && point.x <= bbox.right && point.y >= bbox.top && point.y <= bbox.bottom;
+}
+
+export function buildShapeBBox(shape: Shape) {
+  const outlineMm = useStore()
+    .getPath(shape.penThickness, shape.points, "accurate")
+    .map((p) => new Vec2(p[0], p[1]));
+  const bbox: BBox = {
+    left: outlineMm[0].x,
+    right: outlineMm[0].x,
+    bottom: outlineMm[0].y,
+    top: outlineMm[0].y,
+  };
+  for (const p of outlineMm) {
+    if (p.x < bbox.left) {
+      bbox.left = p.x;
+    }
+    if (p.x > bbox.right) {
+      bbox.right = p.x;
+    }
+    if (p.y < bbox.top) {
+      bbox.top = p.y;
+    }
+    if (p.y > bbox.bottom) {
+      bbox.bottom = p.y;
+    }
+  }
+  return bbox;
 }
 
 export const useStore = defineStore("main", {
@@ -158,8 +198,8 @@ export const useStore = defineStore("main", {
         }
 
         const document: Document = {
-          pages: input.data.pages.map(
-            (p, i): Page =>
+          pages: await Promise.all(input.data.pages.map(
+            async (p, i): Promise<Page> =>
             ({
               pageIndex: i,
               shapes: p.shapes.map((s) => ({
@@ -171,8 +211,17 @@ export const useStore = defineStore("main", {
                 penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
                 penThickness: s.penThickness,
               })),
+              images: p.images && await Promise.all(p.images.map(async (i) => ({
+                position: {
+                  x: i.position.x,
+                  y: i.position.y,
+                },
+                base64ImageData: i.base64ImageData,
+                image: await loadImageAsync(i.base64ImageData),
+                size: i.size,
+              }))) || [],
               previewShape: undefined,
-            }),
+            })),
           ),
           size_mm:
             new Vec2(input.data.pageWidthMm ?? DEFAULT_PAGE_SIZE.x, input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y),
@@ -233,6 +282,11 @@ export const useStore = defineStore("main", {
               penThickness: s.penThickness,
               penColor: s.penColor,
             })),
+            images: p.images.map((i) => ({
+              base64ImageData: i.base64ImageData,
+              position: i.position,
+              size: i.size,
+            })),
           })),
           pageWidthMm: document.size_mm.x,
           pageHeightMm: document.size_mm.y,
@@ -276,7 +330,7 @@ export const useStore = defineStore("main", {
         offset: DEFAULT_DOCUMENT_OFFSET,
         pageColor: DEFAULT_PAGE_COLOR,
         pages: [{
-          pageIndex: 0, previewShape: undefined, shapes: [],
+          pageIndex: 0, previewShape: undefined, shapes: [], images: [],
         }],
         zoom_px_per_mm: DEFAULT_ZOOM_PX_PER_MM,
         size_mm: DEFAULT_PAGE_SIZE,

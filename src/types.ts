@@ -1,4 +1,5 @@
 import type { Point } from "./components/Document";
+import type { Vec2 } from "./components/Vector";
 
 export type FSFileEntry = {
   type: "file";
@@ -20,6 +21,15 @@ export type VaultFS = {
   rootHandle: FileSystemDirectoryHandle;
 };
 
+export type ImageShapeFileFormat = {
+  position: {
+    x: number;
+    y: number;
+  };
+  base64ImageData: string;
+  size: Vec2;
+};
+
 export type TskFileFormat = {
   filetype: string;
   fileversion: 1;
@@ -33,6 +43,7 @@ export type TskFileFormat = {
         penColor: string;
         penThickness: number;
       }[];
+      images: ImageShapeFileFormat[];
     }[];
     pageWidthMm: number;
     pageHeightMm: number;

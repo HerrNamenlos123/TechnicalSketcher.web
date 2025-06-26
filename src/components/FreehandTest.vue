@@ -1,19 +1,38 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
 import {
   getCtx,
   getDocumentSizePx,
+  type BBox,
   type Document,
+  type ImageShape,
   type Page,
   type Shape,
 } from "./Document";
-import { useStore } from "./store";
+import {
+  buildShapeBBox,
+  isPointInBBox,
+  loadImageAsync,
+  useStore,
+} from "./store";
+
+enum Action {
+  Down,
+  Move,
+  Up,
+}
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
 const store = useStore();
 const currentDocument = defineModel<Document>("document", { required: true });
+const explicitSelectionTool = ref(false);
+const selectedLineShapes = ref<Shape[]>([]);
+const selectedImageShapes = ref<ImageShape[]>([]);
+
+const movedLineShapes = ref<Shape[]>([]);
+const movedImageShapes = ref<ImageShape[]>([]);
 
 const colors = [
   "#000000", // Jet Black
@@ -38,12 +57,26 @@ const mainCanvas = ref<HTMLCanvasElement>();
 const viewport = ref<HTMLDivElement>();
 const contextPopupPosPx = ref<undefined | Vec2>();
 
-const drawShape = async (
-  ctx: CanvasRenderingContext2D,
-  shape: Shape,
-  document: Document,
-  mode: "fast" | "accurate",
-) => {
+const drawImage = async (ctx: CanvasRenderingContext2D, image: ImageShape) => {
+  if (!viewport.value || !mainCanvas.value) return;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high"; // optional: "low", "medium", "high"
+  ctx.beginPath();
+
+  ctx.drawImage(
+    image.image,
+    image.position.x * currentDocument.value.zoom_px_per_mm,
+    image.position.y * currentDocument.value.zoom_px_per_mm,
+    image.size.x * currentDocument.value.zoom_px_per_mm,
+    image.size.y * currentDocument.value.zoom_px_per_mm,
+  );
+
+  ctx.restore();
+};
+
+const drawShape = async (ctx: CanvasRenderingContext2D, shape: Shape) => {
   const points = [...shape.points];
   if (!viewport.value || !mainCanvas.value) return;
 
@@ -87,29 +120,8 @@ const drawShape = async (
     }
   }
 
-  const outline = store.getPath(shape.penThickness, points, mode);
+  const outline = store.getPath(shape.penThickness, points, "accurate");
   const scalingFactor = currentDocument.value.zoom_px_per_mm;
-
-  const topLeft = new Vec2(
-    mainCanvas.value.getBoundingClientRect().left -
-      viewport.value.getBoundingClientRect().left,
-    mainCanvas.value.getBoundingClientRect().top -
-      viewport.value.getBoundingClientRect().top,
-  );
-  const bottomRight = topLeft.add(getDocumentSizePx(document));
-
-  if (topLeft.x < 0) {
-    topLeft.x = 0;
-  }
-  if (topLeft.y < 0) {
-    topLeft.y = 0;
-  }
-  if (bottomRight.x > viewport.value.getBoundingClientRect().width) {
-    bottomRight.x = viewport.value.getBoundingClientRect().width;
-  }
-  if (bottomRight.y > viewport.value.getBoundingClientRect().height) {
-    bottomRight.y = viewport.value.getBoundingClientRect().height;
-  }
 
   ctx.save();
   ctx.imageSmoothingEnabled = true;
@@ -273,12 +285,16 @@ const renderPage = async (
       drawImageCover(offCtx, store.paperTexture, pageSize.x, pageSize.y);
     }
 
-    console.log("Rerendering offscreen canvas");
-
     await store.drawGridCanvas(offCtx, currentDocument.value);
 
+    for (const image of page.images) {
+      if (movedImageShapes.value.includes(image)) continue;
+      await drawImage(offCtx, image);
+    }
+
     for (const shape of page.shapes) {
-      await drawShape(offCtx, shape, currentDocument.value, "accurate");
+      if (movedLineShapes.value.includes(shape)) continue;
+      await drawShape(offCtx, shape);
     }
   }
 
@@ -298,10 +314,12 @@ const renderPage = async (
   viewCtx.clearRect(0, 0, pageSize.x, pageSize.y);
 
   viewCtx.drawImage(offCanvas, 0, 0, pageSize.x, pageSize.y);
-  drawSelection(viewCtx, selectionPathPx.value);
+  if (selectionPathPx.value) {
+    drawSelection(viewCtx, selectionPathPx.value);
+  }
 
   if (page.previewShape) {
-    await drawShape(viewCtx, page.previewShape, currentDocument.value, "fast");
+    await drawShape(viewCtx, page.previewShape);
   }
 
   if (eraserPosPx.value) {
@@ -310,7 +328,7 @@ const renderPage = async (
     ctx.arc(
       eraserPosPx.value.x,
       eraserPosPx.value.y,
-      eraserSizePx.value / 2,
+      store.eraserSizePx / 2,
       0,
       Math.PI * 2,
     );
@@ -319,6 +337,36 @@ const renderPage = async (
     ctx.lineWidth = 1;
     ctx.strokeStyle = "black";
     ctx.stroke();
+  }
+
+  for (const image of movedImageShapes.value) {
+    drawImage(viewCtx, image);
+  }
+
+  for (const shape of movedLineShapes.value) {
+    drawShape(viewCtx, shape);
+  }
+
+  for (const shape of selectedLineShapes.value) {
+    const bbox = buildShapeBBox(shape);
+    viewCtx.lineWidth = 1;
+    viewCtx.strokeStyle = "#e77b00";
+    const posMm = new Vec2(bbox.left, bbox.top);
+    const sizeMm = new Vec2(bbox.right - bbox.left, bbox.bottom - bbox.top);
+    const posPx = posMm.mul(currentDocument.value.zoom_px_per_mm);
+    const sizePx = sizeMm.mul(currentDocument.value.zoom_px_per_mm);
+    viewCtx.strokeRect(posPx.x, posPx.y, sizePx.x, sizePx.y);
+  }
+
+  for (const image of selectedImageShapes.value) {
+    viewCtx.lineWidth = 1;
+    viewCtx.strokeStyle = "#e77b00";
+    viewCtx.strokeRect(
+      image.position.x * currentDocument.value.zoom_px_per_mm,
+      image.position.y * currentDocument.value.zoom_px_per_mm,
+      image.size.x * currentDocument.value.zoom_px_per_mm,
+      image.size.y * currentDocument.value.zoom_px_per_mm,
+    );
   }
 };
 
@@ -363,9 +411,20 @@ const isZooming = ref(false);
 const lastZoomFingerDistance = ref(0);
 const lastZoomCenter = ref(new Vec2());
 const contextClickPositionPx = ref<Vec2 | undefined>(undefined);
-const selectionPathPx = ref<Vec2[]>([]);
+const selectionPathPx = ref<undefined | Vec2[]>();
 const eraserPosPx = ref<undefined | Vec2>();
-const eraserSizePx = ref(0);
+
+const selectionPathPerimeterLength = computed(() => {
+  if (!selectionPathPx.value) return 0;
+  let perimeterPx = 0;
+  for (let i = 0; i < selectionPathPx.value.length - 1; i++) {
+    const aPx = selectionPathPx.value[i];
+    const bPx = selectionPathPx.value[i + 1];
+    const distPx = aPx.sub(bPx).mag();
+    perimeterPx += distPx;
+  }
+  return perimeterPx;
+});
 
 const updateZoomingPointers = () => {
   if (!viewport.value) return;
@@ -411,27 +470,6 @@ const updateZoomingPointers = () => {
   }
 };
 
-const findPage = (offsetX: number, offsetY: number) => {
-  if (!mainCanvas.value || !viewport.value) return undefined;
-  const pageSize = getDocumentSizePx(currentDocument.value);
-  const topLeft = new Vec2(
-    mainCanvas.value.getBoundingClientRect().left -
-      viewport.value.getBoundingClientRect().left,
-    mainCanvas.value.getBoundingClientRect().top -
-      viewport.value.getBoundingClientRect().top,
-  );
-
-  if (
-    offsetX > topLeft.x &&
-    offsetX < topLeft.x + pageSize.x &&
-    offsetY > topLeft.y &&
-    offsetY < topLeft.y + pageSize.y
-  ) {
-    return currentDocument.value.pages[currentDocument.value.currentPageIndex];
-  }
-  return undefined;
-};
-
 function pointInPolygon(point: Vec2, polygon: Vec2[]) {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -474,68 +512,151 @@ function circleOutlineIntersectsLine(
   return Math.abs(dist - r) <= epsilon;
 }
 
-const pointerDownHandler = (e: PointerEvent) => {
-  if (!viewport.value || !mainCanvas.value) return;
-  contextPopupPosPx.value = undefined;
-  if (e.pointerType == "touch") {
-    pointerEvents.value.push(e);
-    updateZoomingPointers();
-  } else if (e.pointerType == "mouse") {
-    //
-  } else if (e.pointerType == "pen") {
-    e.preventDefault();
-    const eraser = (e.buttons & 32) !== 0;
-    const backButton = (e.buttons & 2) !== 0;
-    const topLeft = new Vec2(
-      mainCanvas.value.getBoundingClientRect().left -
-        viewport.value.getBoundingClientRect().left,
-      mainCanvas.value.getBoundingClientRect().top -
-        viewport.value.getBoundingClientRect().top,
-    );
-    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
-    const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
-    if (backButton) {
-      contextClickPositionPx.value = mousePosPx;
-    } else if (eraser) {
-      const page = findPage(e.offsetX, e.offsetY);
-      if (!page) return;
-      page.previewShape = undefined;
-      eraserSizePx.value = store.eraserSizePx;
-      eraserPosPx.value = mousePosMm.mul(currentDocument.value.zoom_px_per_mm);
+const buildBoundingBoxForAllShapes = (page: Page) => {
+  for (const shape of page.shapes) {
+    shape.eraseBBox = buildShapeBBox(shape);
+  }
+};
 
-      for (const shape of page.shapes) {
-        const outlineMm = store
-          .getPath(shape.penThickness, shape.points, "accurate")
-          .map((p) => new Vec2(p[0], p[1]));
-        shape.eraseBBox = {
-          left: outlineMm[0].x,
-          right: outlineMm[0].x,
-          bottom: outlineMm[0].y,
-          top: outlineMm[0].y,
-        };
-        for (const p of outlineMm) {
-          if (p.x < shape.eraseBBox.left) {
-            shape.eraseBBox.left = p.x;
-          }
-          if (p.x > shape.eraseBBox.right) {
-            shape.eraseBBox.right = p.x;
-          }
-          if (p.y < shape.eraseBBox.top) {
-            shape.eraseBBox.top = p.y;
-          }
-          if (p.y > shape.eraseBBox.bottom) {
-            shape.eraseBBox.bottom = p.y;
-          }
+const selectShapeUnderCursor = (page: Page, cursorPosMm: Vec2) => {
+  buildBoundingBoxForAllShapes(page);
+
+  selectedImageShapes.value = [];
+  selectedLineShapes.value = [];
+
+  for (const shape of page.shapes) {
+    if (shape.eraseBBox && isPointInBBox(shape.eraseBBox, cursorPosMm)) {
+      selectedLineShapes.value = [shape];
+      return;
+    }
+  }
+
+  for (const image of page.images) {
+    const bbox: BBox = {
+      left: image.position.x,
+      top: image.position.y,
+      right: image.position.x + image.size.x,
+      bottom: image.position.y + image.size.y,
+    };
+    if (isPointInBBox(bbox, cursorPosMm)) {
+      selectedImageShapes.value = [image];
+      return;
+    }
+  }
+};
+
+const isCursorOnAnyShape = (page: Page, cursorPosMm: Vec2) => {
+  for (const shape of page.shapes) {
+    if (isPointInBBox(buildShapeBBox(shape), cursorPosMm)) {
+      return true;
+    }
+  }
+
+  for (const image of page.images) {
+    const bbox: BBox = {
+      left: image.position.x,
+      top: image.position.y,
+      right: image.position.x + image.size.x,
+      bottom: image.position.y + image.size.y,
+    };
+    if (isPointInBBox(bbox, cursorPosMm)) {
+      return true;
+    }
+  }
+};
+
+const isCursorOnAnySelectedShape = (page: Page, cursorPosMm: Vec2) => {
+  for (const shape of page.shapes) {
+    if (!selectedLineShapes.value.includes(shape)) continue;
+    if (isPointInBBox(buildShapeBBox(shape), cursorPosMm)) {
+      return true;
+    }
+  }
+
+  for (const image of page.images) {
+    if (!selectedImageShapes.value.includes(image)) continue;
+    const bbox: BBox = {
+      left: image.position.x,
+      top: image.position.y,
+      right: image.position.x + image.size.x,
+      bottom: image.position.y + image.size.y,
+    };
+    if (isPointInBBox(bbox, cursorPosMm)) {
+      return true;
+    }
+  }
+};
+
+const mouseEvent = (e: PointerEvent, action: Action) => {
+  if (action === Action.Down) {
+  } else if (action === Action.Move) {
+  } else if (action === Action.Up) {
+  }
+};
+
+const penEvent = (e: PointerEvent, action: Action) => {
+  e.preventDefault();
+  if (!viewport.value || !mainCanvas.value) return;
+
+  const eraserButton = (e.buttons & 32) !== 0;
+  const stylusButton = (e.buttons & 2) !== 0;
+  const penDown = (e.buttons & 1) !== 0;
+
+  const topLeft = new Vec2(
+    mainCanvas.value.getBoundingClientRect().left -
+      viewport.value.getBoundingClientRect().left,
+    mainCanvas.value.getBoundingClientRect().top -
+      viewport.value.getBoundingClientRect().top,
+  );
+  const cursorPosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
+  const cursorPosMm = cursorPosPx.div(currentDocument.value.zoom_px_per_mm);
+
+  const currentPage =
+    currentDocument.value.pages[currentDocument.value.currentPageIndex];
+  // const cursorOnPage =
+  //   cursorPosMm.x >= 0 &&
+  //   cursorPosMm.x <= currentDocument.value.size_mm.x &&
+  //   cursorPosMm.y >= 0 &&
+  //   cursorPosMm.y <= currentDocument.value.size_mm.y;
+
+  if (action === Action.Down) {
+    if (explicitSelectionTool.value) {
+      if (!isCursorOnAnySelectedShape(currentPage, cursorPosMm)) {
+        selectedImageShapes.value = [];
+        selectedLineShapes.value = [];
+      } else {
+        movedLineShapes.value = [];
+        movedImageShapes.value = [];
+        for (const shape of selectedLineShapes.value) {
+          movedLineShapes.value.push(shape);
         }
+        for (const image of selectedImageShapes.value) {
+          movedImageShapes.value.push(image);
+        }
+        store.forceRender = true;
+        store.flushCanvas = true;
+        selectionPathPx.value = undefined;
       }
+    }
+
+    if (stylusButton || explicitSelectionTool.value) {
+      if (
+        selectedLineShapes.value.length === 0 &&
+        selectedImageShapes.value.length === 0
+      ) {
+        contextClickPositionPx.value = cursorPosPx;
+        selectionPathPx.value = [];
+      }
+    } else if (eraserButton) {
+      currentPage.previewShape = undefined;
+      eraserPosPx.value = cursorPosMm.mul(currentDocument.value.zoom_px_per_mm);
+      buildBoundingBoxForAllShapes(currentPage);
     } else {
-      const page = findPage(e.offsetX, e.offsetY);
-      if (!page) return;
-      page.previewShape = {
+      currentPage.previewShape = {
         points: [
           {
-            x: mousePosMm.x,
-            y: mousePosMm.y,
+            x: cursorPosMm.x,
+            y: cursorPosMm.y,
             pressure: 0.5,
           },
         ],
@@ -544,56 +665,45 @@ const pointerDownHandler = (e: PointerEvent) => {
         penThickness: store.penSizeMm,
       };
     }
-  }
-  store.forceRender = true;
-};
+  } else if (action === Action.Move) {
+    const delta = new Vec2(e.movementX, e.movementY).div(
+      currentDocument.value.zoom_px_per_mm,
+    );
+    if (explicitSelectionTool.value) {
+      if (penDown) {
+        for (const shape of selectedLineShapes.value) {
+          shape.eraseBBox = undefined;
+          for (const p of shape.points) {
+            p.x += delta.x;
+            p.y += delta.y;
+          }
+        }
+        for (const image of selectedImageShapes.value) {
+          image.position.x += delta.x;
+          image.position.y += delta.y;
+        }
+        store.forceRender = true;
+      }
+    }
 
-const pointerMoveHandler = (e: PointerEvent) => {
-  if (!viewport.value || !mainCanvas.value) return;
-  if (e.pointerType == "touch") {
-    const index = pointerEvents.value.findIndex(
-      (cachedEv) => cachedEv.pointerId === e.pointerId,
-    );
-    pointerEvents.value[index] = e;
-    updateZoomingPointers();
-  } else if (e.pointerType == "mouse") {
-    //
-  } else if (e.pointerType == "pen") {
-    const eraser = (e.buttons & 32) !== 0;
-    const backButton = (e.buttons & 2) !== 0;
-    const page = findPage(e.offsetX, e.offsetY);
-    if (!page) return;
-    const topLeft = new Vec2(
-      mainCanvas.value.getBoundingClientRect().left -
-        viewport.value.getBoundingClientRect().left,
-      mainCanvas.value.getBoundingClientRect().top -
-        viewport.value.getBoundingClientRect().top,
-    );
-    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
-    const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
-    if (backButton) {
-      selectionPathPx.value.push(mousePosPx);
-    } else if (!eraser) {
-      if (!page?.previewShape) return;
-      if (e.movementX === 0 && e.movementY === 0) return;
-      page.previewShape.points.push({
-        x: mousePosMm.x,
-        y: mousePosMm.y,
-        pressure: 0.5,
-      });
-    } else {
-      for (const shape of page.shapes) {
+    if (stylusButton || explicitSelectionTool.value) {
+      if (stylusButton || penDown) {
+        if (selectionPathPx.value) {
+          selectionPathPx.value.push(cursorPosPx);
+        }
+      }
+    } else if (eraserButton) {
+      for (const shape of currentPage.shapes) {
         if (!shape.eraseBBox) {
           break;
         }
 
-        eraserSizePx.value = store.eraserSizePx;
         const eraserSizeMm =
-          eraserSizePx.value / currentDocument.value.zoom_px_per_mm;
-        eraserPosPx.value = mousePosMm.mul(
+          store.eraserSizePx / currentDocument.value.zoom_px_per_mm;
+        eraserPosPx.value = cursorPosMm.mul(
           currentDocument.value.zoom_px_per_mm,
         );
-        const eraserPosMm = mousePosMm;
+        const eraserPosMm = cursorPosMm;
 
         if (
           eraserPosMm.x + eraserSizeMm / 2 < shape.eraseBBox.left ||
@@ -628,13 +738,103 @@ const pointerMoveHandler = (e: PointerEvent) => {
         }
 
         if (deleteShape) {
-          page.shapes = page.shapes.filter((s) => s !== shape);
+          currentPage.shapes = currentPage.shapes.filter((s) => s !== shape);
           store.forceRender = true;
           store.flushCanvas = true;
           return;
         }
       }
+    } else {
+      if (e.movementX === 0 && e.movementY === 0) return;
+      if (currentPage.previewShape) {
+        currentPage.previewShape.points.push({
+          x: cursorPosMm.x,
+          y: cursorPosMm.y,
+          pressure: 0.5,
+        });
+      }
     }
+  } else if (action === Action.Up) {
+    eraserPosPx.value = undefined;
+    if (contextClickPositionPx.value) {
+      if (
+        selectionPathPerimeterLength.value <= CONTEXT_MENU_PERIMETER_LIMIT_PX
+      ) {
+        if (explicitSelectionTool.value) {
+          selectShapeUnderCursor(currentPage, cursorPosMm);
+        } else {
+          contextPopupPosPx.value = cursorPosPx;
+          nextTick(() => {
+            nextTick(() => {
+              contextPopupRef.value?.focus();
+            });
+          });
+        }
+      } else {
+        // selectedLineShapes.value.push();
+        // console.log("Select");
+      }
+      movedImageShapes.value = [];
+      movedLineShapes.value = [];
+      contextClickPositionPx.value = undefined;
+      selectionPathPx.value = undefined;
+      store.forceRender = true;
+      store.flushCanvas = true;
+    } else {
+      if (currentPage.previewShape) {
+        currentPage.previewShape.points.push({
+          x: cursorPosMm.x,
+          y: cursorPosMm.y,
+          pressure: 0.5,
+        });
+
+        drawShape(getCtx(store.currentPageCanvas), currentPage.previewShape);
+        currentPage.shapes.push({
+          points: currentPage.previewShape.points,
+          penColor: store.penColor,
+          penThickness: store.penSizeMm,
+        });
+        currentPage.previewShape = undefined;
+
+        if (currentPage.pageIndex === currentDocument.value.pages.length - 1) {
+          currentDocument.value.pages.push({
+            pageIndex: currentDocument.value.pages.length,
+            shapes: [],
+            images: [],
+          });
+        }
+      }
+
+      store.saveDocument(currentDocument.value);
+    }
+  }
+};
+
+const pointerDownHandler = (e: PointerEvent) => {
+  contextPopupPosPx.value = undefined;
+  if (e.pointerType == "touch") {
+    pointerEvents.value.push(e);
+    updateZoomingPointers();
+  } else if (e.pointerType == "mouse") {
+    mouseEvent(e, Action.Down);
+  } else if (e.pointerType == "pen") {
+    penEvent(e, Action.Down);
+  }
+  store.forceRender = true;
+};
+
+const pointerMoveHandler = (e: PointerEvent) => {
+  if (!viewport.value || !mainCanvas.value) return;
+  if (e.pointerType == "touch") {
+    const index = pointerEvents.value.findIndex(
+      (cachedEv) => cachedEv.pointerId === e.pointerId,
+    );
+    pointerEvents.value[index] = e;
+    updateZoomingPointers();
+  } else if (e.pointerType == "mouse") {
+    mouseEvent(e, Action.Move);
+  } else if (e.pointerType == "pen") {
+    penEvent(e, Action.Move);
   }
   store.forceRender = true;
 };
@@ -650,86 +850,11 @@ const pointerUpHandler = (e: PointerEvent) => {
     }
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
-    //
+    mouseEvent(e, Action.Up);
   } else if (e.pointerType == "pen") {
-    const topLeft = new Vec2(
-      mainCanvas.value.getBoundingClientRect().left -
-        viewport.value.getBoundingClientRect().left,
-      mainCanvas.value.getBoundingClientRect().top -
-        viewport.value.getBoundingClientRect().top,
-    );
-    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
-    const page = findPage(e.offsetX, e.offsetY);
-    if (contextClickPositionPx.value) {
-      e.preventDefault();
-      let perimeterPx = 0;
-      for (let i = 0; i < selectionPathPx.value.length - 1; i++) {
-        const aPx = selectionPathPx.value[i];
-        const bPx = selectionPathPx.value[i + 1];
-        const distPx = aPx.sub(bPx).mag();
-        perimeterPx += distPx;
-      }
-      if (perimeterPx <= CONTEXT_MENU_PERIMETER_LIMIT_PX) {
-        contextPopupPosPx.value = mousePosPx;
-        nextTick(() => {
-          nextTick(() => {
-            contextPopupRef.value?.focus();
-          });
-        });
-      } else {
-        console.log("Select");
-      }
-    } else {
-      const topLeft = new Vec2(
-        mainCanvas.value.getBoundingClientRect().left -
-          viewport.value.getBoundingClientRect().left,
-        mainCanvas.value.getBoundingClientRect().top -
-          viewport.value.getBoundingClientRect().top,
-      );
-      const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
-      const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
-      if (page?.previewShape) {
-        page.previewShape.points.push({
-          x: mousePosMm.x,
-          y: mousePosMm.y,
-          pressure: 0.5,
-        });
-
-        // const pooledCanvas = store.canvasPool.find(
-        //   (e) => e.pageIndex === page.pageIndex,
-        // );
-        // if (pooledCanvas) {
-        drawShape(
-          getCtx(store.currentPageCanvas),
-          page.previewShape,
-          currentDocument.value,
-          "accurate",
-        );
-        // } else {
-        //   console.warn("Page not found");
-        // }
-        page.shapes.push({
-          points: page.previewShape.points,
-          penColor: store.penColor,
-          penThickness: store.penSizeMm,
-        });
-        page.previewShape = undefined;
-
-        if (page.pageIndex === currentDocument.value.pages.length - 1) {
-          currentDocument.value.pages.push({
-            pageIndex: currentDocument.value.pages.length,
-            shapes: [],
-          });
-        }
-      }
-
-      store.saveDocument(currentDocument.value);
-    }
+    penEvent(e, Action.Up);
   }
   store.forceRender = true;
-  contextClickPositionPx.value = undefined;
-  selectionPathPx.value = [];
-  eraserPosPx.value = undefined;
 };
 
 watch(
@@ -756,8 +881,55 @@ const keydown = (e: KeyboardEvent) => {
   }
 };
 
+const paste = (e: ClipboardEvent) => {
+  const items = e.clipboardData?.items || [];
+  for (const item of items) {
+    if (item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+
+      reader.onload = async (e) => {
+        if (!e.target || !viewport.value) return;
+        const imageBase64 = e.target.result;
+        const page =
+          currentDocument.value.pages[currentDocument.value.currentPageIndex];
+        if (typeof imageBase64 !== "string") return;
+        const vpBB = viewport.value.getBoundingClientRect();
+        const viewportSizePx = new Vec2(vpBB.width, vpBB.height);
+        const pageTopLeft = currentDocument.value.offset;
+
+        const img = await loadImageAsync(imageBase64);
+
+        const imageSize = new Vec2(img.width, img.height);
+        const imagePositionInVp = viewportSizePx.div(2).sub(imageSize.div(2));
+        const imagePositionInPagePx = imagePositionInVp.sub(pageTopLeft);
+        const imagePositionInPageMm = imagePositionInPagePx.div(
+          currentDocument.value.zoom_px_per_mm,
+        );
+
+        const image: ImageShape = {
+          base64ImageData: imageBase64,
+          position: {
+            x: imagePositionInPageMm.x,
+            y: imagePositionInPageMm.y,
+          },
+          size: new Vec2(img.width, img.height),
+          image: img,
+        };
+        page.images.push(image);
+        // console.log("Inserted image at", image.position);
+        store.saveDocument(currentDocument.value);
+      };
+
+      reader.readAsDataURL(file);
+    }
+  }
+};
+
 onMounted(async () => {
   window.addEventListener("keydown", keydown);
+  window.addEventListener("paste", paste);
   store.currentPageCanvas = createCanvas();
   await nextTick();
   await nextTick();
@@ -783,6 +955,7 @@ watch(
 
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
+  window.removeEventListener("paste", paste);
   // for (const entry of store.canvasPool) {
   //   entry.pageIndex = -1;
   // }
@@ -868,6 +1041,40 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
           id="penSize"
           class="flex bg-white w-fit rounded-md border border-black p-1 gap-1"
         >
+          <div
+            class="cursor-pointer"
+            @click.stop.prevent="
+              () => {
+                explicitSelectionTool = true;
+                contextPopupPosPx = undefined;
+              }
+            "
+            @pointercancel.stop.prevent
+            @pointerdown.stop.prevent
+            @pointerleave.stop.prevent
+            @pointermove.stop.prevent
+            @pointerup.stop.prevent
+          >
+            <svg
+              fill="none"
+              height="30"
+              viewBox="0 0 64 64"
+              width="30"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect
+                fill="none"
+                height="40"
+                stroke="black"
+                stroke-dasharray="4 4"
+                stroke-width="2"
+                width="40"
+                x="12"
+                y="12"
+              />
+            </svg>
+          </div>
+
           <div
             v-for="thickness in penThicknesses"
             :key="thickness"

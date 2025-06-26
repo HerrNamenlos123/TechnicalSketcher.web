@@ -8,23 +8,36 @@ export type Point = {
   pressure: number;
 };
 
+export type BBox = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
 export type Shape = {
   points: Point[];
-  eraseBBox?: {
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-  }
+  eraseBBox?: BBox;
   lagCompensation?: boolean;
   penThickness: number;
   penColor: string;
+};
+
+export type ImageShape = {
+  position: {
+    x: number;
+    y: number;
+  };
+  base64ImageData: string;
+  image: HTMLImageElement;
+  size: Vec2;
 };
 
 export type Page = {
   previewShape?: Shape;
   pageIndex: number;
   shapes: Shape[];
+  images: ImageShape[];
 }
 
 export function getCtx(canvas: HTMLCanvasElement | undefined) {
