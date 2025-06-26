@@ -4,7 +4,7 @@ import BasicIcon from "../BasicIcon.vue";
 
 const selectedTool = defineModel<string>("selectedTool", { required: true });
 
-const emit = defineEmits<{
+defineEmits<{
   onSelectTool: [tool: string];
 }>();
 

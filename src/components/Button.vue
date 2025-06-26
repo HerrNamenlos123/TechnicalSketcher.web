@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import BasicIcon from "./BasicIcon.vue";
 
-const props = defineProps<{
+defineProps<{
   text: string;
   icon?: string;
   disabled?: boolean;

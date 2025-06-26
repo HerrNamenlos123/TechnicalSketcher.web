@@ -2,7 +2,7 @@
 import type { FSDirEntry, FSFileEntry } from "@/types";
 import BasicIcon from "./BasicIcon.vue";
 
-const props = defineProps<{
+defineProps<{
   entry: FSFileEntry | FSDirEntry;
 }>();
 
