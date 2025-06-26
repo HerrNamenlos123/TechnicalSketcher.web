@@ -198,6 +198,8 @@ export const useStore = defineStore("main", {
         ) {
           this.openDocuments[i] = newDoc;
           this.currentlyOpenDocument = newDoc;
+          this.forceRender = true;
+          this.flushCanvas = true;
           return;
         }
       }
@@ -205,6 +207,8 @@ export const useStore = defineStore("main", {
       // No match
       this.openDocuments.push(newDoc);
       this.currentlyOpenDocument = newDoc;
+      this.forceRender = true;
+      this.flushCanvas = true;
     },
     async saveDocument(document: Document) {
       const output: TskFileFormat = {

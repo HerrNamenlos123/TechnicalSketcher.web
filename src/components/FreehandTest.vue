@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
 import {
   getCtx,
@@ -464,7 +464,9 @@ const pointerUpHandler = (e: PointerEvent) => {
 
 watch(
   () => store.forceRender,
-  () => {
+  async () => {
+    await nextTick();
+    await nextTick();
     if (store.forceRender) {
       store.forceRender = false;
       render();
