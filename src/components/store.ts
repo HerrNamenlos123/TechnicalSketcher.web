@@ -4,8 +4,8 @@ import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, 
 import { Vec2 } from "./Vector";
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import getStroke from "perfect-freehand";
-import PaperTexture from "@/assets/paper-texture.jpg";
-import PaperTextureWhite from "@/assets/paper-texture-white.avif";
+// import PaperTexture from "@/assets/paper-texture.jpg";
+// import PaperTextureWhite from "@/assets/paper-texture-white.avif";
 import PaperTextureTiling from "@/assets/paper-texture-tiling.jpg";
 
 export function assert<T>(
@@ -167,7 +167,7 @@ export const useStore = defineStore("main", {
                   y: point.y * this.perfectFreehandAccuracyScaling,
                   pressure: point.pressure,
                 })),
-                penColor: s.penColor,
+                penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
                 penThickness: s.penThickness,
               })),
               previewShape: undefined,
@@ -272,7 +272,7 @@ export const useStore = defineStore("main", {
       const doc: Document = {
         gridColor: DEFAULT_GRID_COLOR,
         gridType: "lines",
-        offset: new Vec2(300, 100),
+        offset: DEFAULT_DOCUMENT_OFFSET,
         pageColor: DEFAULT_PAGE_COLOR,
         pages: [{
           pageIndex: 0, previewShape: undefined, shapes: [],
@@ -337,8 +337,11 @@ export const useStore = defineStore("main", {
             "accurate",
           );
           const d = getSvgPathFromStroke(stroke);
-          const { r, g, b } = this.hexToRgb(shape.penColor);
-          pdfPage.drawSvgPath(d, { color: rgb(r, g, b) });
+          const { r, g, b, a } = this.parseColor(shape.penColor);
+          pdfPage.drawSvgPath(d, {
+            color: rgb(r / 255, g / 255, b / 255),
+            opacity: a
+          });
         }
       }
 
@@ -358,7 +361,7 @@ export const useStore = defineStore("main", {
       const handle = await this.getOrCreateFile(this.vault.rootHandle, pdfPath);
       const pdfBytes = await pdfDoc.save();
       const writable = await handle.createWritable();
-      await writable.write(pdfBytes);
+      await writable.write(pdfBytes.slice(0));
       await writable.close();
     },
     async drawGridCanvas(
@@ -375,23 +378,51 @@ export const useStore = defineStore("main", {
         ctx.stroke();
       }
     },
-    hexToRgb(hex: string) {
-      const bigint = parseInt(hex.replace("#", ""), 16);
-      return {
-        r: ((bigint >> 16) & 255) / 255,
-        g: ((bigint >> 8) & 255) / 255,
-        b: (bigint & 255) / 255,
-      };
+    parseColor(colorStr: string) {
+      colorStr = colorStr.trim();
+
+      // If color is in rgba(r,g,b,a) format
+      if (colorStr.startsWith('rgba')) {
+        // Match rgba numbers
+        const match = colorStr.match(/rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1|0?\.\d+)\s*\)/i);
+        if (match) {
+          return {
+            r: parseInt(match[1], 10),
+            g: parseInt(match[2], 10),
+            b: parseInt(match[3], 10),
+            a: parseFloat(match[4]),
+          };
+        }
+      }
+
+      // If color is in hex format (#RGB or #RRGGBB)
+      if (colorStr.startsWith('#')) {
+        let r, g, b;
+        if (colorStr.length === 4) {  // #RGB shorthand
+          r = parseInt(colorStr[1] + colorStr[1], 16);
+          g = parseInt(colorStr[2] + colorStr[2], 16);
+          b = parseInt(colorStr[3] + colorStr[3], 16);
+        } else if (colorStr.length === 7) {  // #RRGGBB
+          r = parseInt(colorStr.slice(1, 3), 16);
+          g = parseInt(colorStr.slice(3, 5), 16);
+          b = parseInt(colorStr.slice(5, 7), 16);
+        } else {
+          throw new Error('Invalid hex color length');
+        }
+        return { r, g, b, a: 1 };  // alpha defaults to 1 (opaque)
+      }
+
+      throw new Error('Unsupported color format');
     },
     async drawGridPdf(pdfPage: PDFPage, doc: Document) {
       for (let y = 0; y < doc.size_mm.y; y += this.gridLineDistanceMm) {
-        const { r, g, b } = this.hexToRgb(doc.gridColor);
-        const color = rgb(r, g, b);
+        const { r, g, b, a } = this.parseColor(doc.gridColor);
         pdfPage.drawLine({
           start: { x: 0, y: pdfPage.getHeight() - y },
           end: { x: doc.size_mm.x, y: pdfPage.getHeight() - y },
           thickness: this.gridLineThicknessMm,
-          color: color,
+          color: rgb(r / 255, g / 255, b / 255),
+          opacity: a,
         });
       }
     },

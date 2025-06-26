@@ -30,7 +30,7 @@ const drawShape = async (
   mode: "fast" | "accurate",
 ) => {
   const points = [...shape.points];
-  if (!viewport.value) return;
+  if (!viewport.value || !mainCanvas.value) return;
 
   if (shape.lagCompensation) {
     if (shape.points.length >= 3) {
@@ -78,8 +78,10 @@ const drawShape = async (
     currentDocument.value.zoom_px_per_mm / store.perfectFreehandAccuracyScaling;
 
   const topLeft = new Vec2(
-    currentDocument.value.offset.x,
-    currentDocument.value.offset.y,
+    mainCanvas.value.getBoundingClientRect().left -
+      viewport.value.getBoundingClientRect().left,
+    mainCanvas.value.getBoundingClientRect().top -
+      viewport.value.getBoundingClientRect().top,
   );
   const bottomRight = topLeft.add(getDocumentSizePx(document));
 
@@ -347,14 +349,20 @@ const updateZoomingPointers = () => {
 };
 
 const findPage = (offsetX: number, offsetY: number) => {
+  if (!mainCanvas.value || !viewport.value) return undefined;
   const pageSize = getDocumentSizePx(currentDocument.value);
-  const offsetPx = currentDocument.value.offset;
+  const topLeft = new Vec2(
+    mainCanvas.value.getBoundingClientRect().left -
+      viewport.value.getBoundingClientRect().left,
+    mainCanvas.value.getBoundingClientRect().top -
+      viewport.value.getBoundingClientRect().top,
+  );
 
   if (
-    offsetX > offsetPx.x &&
-    offsetX < offsetPx.x + pageSize.x &&
-    offsetY > offsetPx.y &&
-    offsetY < offsetPx.y + pageSize.y
+    offsetX > topLeft.x &&
+    offsetX < topLeft.x + pageSize.x &&
+    offsetY > topLeft.y &&
+    offsetY < topLeft.y + pageSize.y
   ) {
     return currentDocument.value.pages[currentDocument.value.currentPageIndex];
   }
@@ -362,7 +370,7 @@ const findPage = (offsetX: number, offsetY: number) => {
 };
 
 const pointerDownHandler = (e: PointerEvent) => {
-  if (!viewport.value) return;
+  if (!viewport.value || !mainCanvas.value) return;
   if (e.pointerType == "touch") {
     pointerEvents.value.push(e);
     updateZoomingPointers();
@@ -374,9 +382,13 @@ const pointerDownHandler = (e: PointerEvent) => {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page) return;
     if (page && !eraser) {
-      const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(
-        currentDocument.value.offset,
+      const topLeft = new Vec2(
+        mainCanvas.value.getBoundingClientRect().left -
+          viewport.value.getBoundingClientRect().left,
+        mainCanvas.value.getBoundingClientRect().top -
+          viewport.value.getBoundingClientRect().top,
       );
+      const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
       const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
       page.previewShape = {
         points: [
@@ -398,7 +410,7 @@ const pointerDownHandler = (e: PointerEvent) => {
 };
 
 const pointerMoveHandler = (e: PointerEvent) => {
-  if (!viewport.value) return;
+  if (!viewport.value || !mainCanvas.value) return;
   if (e.pointerType == "touch") {
     const index = pointerEvents.value.findIndex(
       (cachedEv) => cachedEv.pointerId === e.pointerId,
@@ -411,9 +423,13 @@ const pointerMoveHandler = (e: PointerEvent) => {
     const eraser = (e.buttons & 32) !== 0;
     const page = findPage(e.offsetX, e.offsetY);
     if (!page) return;
-    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(
-      currentDocument.value.offset,
+    const topLeft = new Vec2(
+      mainCanvas.value.getBoundingClientRect().left -
+        viewport.value.getBoundingClientRect().left,
+      mainCanvas.value.getBoundingClientRect().top -
+        viewport.value.getBoundingClientRect().top,
     );
+    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     if (!eraser) {
       if (!page?.previewShape) return;
@@ -448,7 +464,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
 };
 
 const pointerUpHandler = (e: PointerEvent) => {
-  if (!viewport.value) return;
+  if (!viewport.value || !mainCanvas.value) return;
   if (e.pointerType == "touch") {
     const index = pointerEvents.value.findIndex(
       (cachedEv) => cachedEv.pointerId === e.pointerId,
@@ -462,9 +478,13 @@ const pointerUpHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "pen") {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page?.previewShape) return;
-    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(
-      currentDocument.value.offset,
+    const topLeft = new Vec2(
+      mainCanvas.value.getBoundingClientRect().left -
+        viewport.value.getBoundingClientRect().left,
+      mainCanvas.value.getBoundingClientRect().top -
+        viewport.value.getBoundingClientRect().top,
     );
+    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     page.previewShape.points.push({
       x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
@@ -588,7 +608,7 @@ onUnmounted(() => {
 <template>
   <div
     ref="viewport"
-    class="relative w-full h-full overflow-hidden bg-black"
+    class="relative w-full h-full overflow-hidden bg-white"
     @keydown="keydown"
     @pointercancel="pointerUpHandler($event)"
     @pointerdown="pointerDownHandler($event)"
@@ -598,13 +618,20 @@ onUnmounted(() => {
     @pointerup="pointerUpHandler($event)"
     @wheel="handleWheel"
   >
+    <img class="w-full h-full object-cover" src="/table-tiling-2.jpg" />
     <canvas
       ref="mainCanvas"
       class="absolute pointer-events-none rounded-r-3xl"
       :style="{
+        backgroundColor: currentDocument.pageColor,
         left: currentDocument.offset.x + 'px',
         top: currentDocument.offset.y + 'px',
-        backgroundColor: currentDocument.pageColor,
+        borderTopRightRadius:
+          (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 +
+          'px',
+        borderBottomRightRadius:
+          (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 +
+          'px',
       }"
     />
   </div>
