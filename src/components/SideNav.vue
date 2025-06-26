@@ -5,6 +5,7 @@ import { onMounted, ref } from "vue";
 import BasicIcon from "./BasicIcon.vue";
 import type { FSFileEntry } from "@/types";
 import Button from "./Button.vue";
+import { ColorPicker } from "vue3-colorpicker";
 
 const openVault = async () => {
   await store.initVault();
@@ -65,105 +66,125 @@ const setPageHeight = (y: number) => {
 
 <template>
   <div
-    class="w-64 bg-background border-r border-white border-opacity-20 text-white"
+    class="w-64 bg-background border-r border-white border-opacity-20 text-white overflow-y-auto"
   >
-    <template v-if="store.vault">
-      <SideNavTreeEntry
-        v-for="(entry, i) in store.vault.filetree"
-        :key="i"
-        :entry="entry"
-        @open-file="openFile"
-      />
-    </template>
-    <template v-else>
-      <div
-        class="border p-1 text-white text-xl rounded-lg cursor-pointer"
-        @click="openVault"
-      >
-        Open Vault
-      </div>
-    </template>
-    <div class="w-full flex justify-center mt-4 text-xl relative">
-      <div
-        class="p-1 border rounded-md cursor-pointer"
-        @click="
-          createDocumentPopup = true;
-          createFilepath = '';
-        "
-      >
-        <BasicIcon icon="PhPlus" />
-      </div>
-      <div
-        v-if="createDocumentPopup"
-        class="absolute top-0 left-0 z-50 bg-background border w-[400px] p-2 gap-2 flex flex-col"
-      >
-        <div class="">Filepath</div>
-        <input v-model="createFilepath" class="bg-black" />
-        <div class="flex gap-4">
-          <Button
-            text="Create"
-            @click="
-              store.createDocument(createFilepath);
-              createDocumentPopup = false;
-            "
-          />
-          <Button text="Cancel" @click="createDocumentPopup = false" />
+    <div class="h-fit">
+      <template v-if="store.vault">
+        <SideNavTreeEntry
+          v-for="(entry, i) in store.vault.filetree"
+          :key="i"
+          :entry="entry"
+          @open-file="openFile"
+        />
+      </template>
+      <template v-else>
+        <div
+          class="border p-1 text-white text-xl rounded-lg cursor-pointer"
+          @click="openVault"
+        >
+          Open Vault
+        </div>
+      </template>
+      <div class="w-full flex justify-center mt-4 text-xl relative">
+        <div
+          class="p-1 border rounded-md cursor-pointer"
+          @click="
+            createDocumentPopup = true;
+            createFilepath = '';
+          "
+        >
+          <BasicIcon icon="PhPlus" />
+        </div>
+        <div
+          v-if="createDocumentPopup"
+          class="absolute top-0 left-0 z-50 bg-background border w-[400px] p-2 gap-2 flex flex-col"
+        >
+          <div class="">Filepath</div>
+          <input v-model="createFilepath" class="bg-black" />
+          <div class="flex gap-4">
+            <Button
+              text="Create"
+              @click="
+                store.createDocument(createFilepath);
+                createDocumentPopup = false;
+              "
+            />
+            <Button text="Cancel" @click="createDocumentPopup = false" />
+          </div>
         </div>
       </div>
-    </div>
 
-    <div
-      v-if="store.currentlyOpenDocument?.fileHandle !== undefined"
-      class="w-full flex justify-center mt-4 text-xl relative"
-    >
-      <Button
-        :icon="(!exportDone && 'PhFilePdf') || undefined"
-        :text="!exportDone ? 'Export PDF' : 'Done'"
-        @click="exportDoc(store.currentlyOpenDocument.fileHandle)"
-      />
-    </div>
+      <div
+        v-if="store.currentlyOpenDocument?.fileHandle !== undefined"
+        class="w-full flex justify-center mt-4 text-xl relative"
+      >
+        <Button
+          :icon="(!exportDone && 'PhFilePdf') || undefined"
+          :text="!exportDone ? 'Export PDF' : 'Done'"
+          @click="exportDoc(store.currentlyOpenDocument.fileHandle)"
+        />
+      </div>
 
-    <div
-      v-if="store.currentlyOpenDocument"
-      class="flex items-center gap-2 ml-4 text-xl mt-4"
-    >
-      <div>{{ "Page Color" }}</div>
-      <input
+      <div
         v-if="store.currentlyOpenDocument"
-        v-model="store.currentlyOpenDocument.pageColor"
-        class="bg-background border"
-        type="color"
-      />
-    </div>
-    <div
-      v-if="(store.currentlyOpenDocument?.pages.length || 0) > 0"
-      class="flex items-center gap-2 ml-4 text-xl mt-4"
-    >
-      <div>{{ "Page Width" }}</div>
-      <input
-        class="w-16 bg-black border"
-        type="text"
-        :value="store.currentlyOpenDocument?.size_mm.x"
-        @input="
-          (e) => setPageWidth(Number((e.target as HTMLInputElement).value))
-        "
-      />
-      <div>{{ "mm" }}</div>
-    </div>
-    <div
-      v-if="(store.currentlyOpenDocument?.pages.length || 0) > 0"
-      class="flex items-center gap-2 ml-4 text-xl mt-4"
-    >
-      <div>{{ "Page Height" }}</div>
-      <input
-        class="w-16 bg-black border"
-        type="text"
-        :value="store.currentlyOpenDocument?.size_mm.y"
-        @input="
-          (e) => setPageHeight(Number((e.target as HTMLInputElement).value))
-        "
-      />
-      <div>{{ "mm" }}</div>
+        class="flex items-center gap-2 ml-4 text-xl mt-4"
+      >
+        <div>{{ "Page Color" }}</div>
+        <ColorPicker
+          v-model:pure-color="store.currentlyOpenDocument.pageColor"
+          @pure-color-change="
+            () => {
+              store.forceRender = true;
+              store.flushCanvas = true;
+            }
+          "
+        />
+      </div>
+      <div
+        v-if="store.currentlyOpenDocument"
+        class="flex items-center gap-2 ml-4 text-xl mt-4"
+      >
+        <div>{{ "Grid Color" }}</div>
+        <ColorPicker
+          v-model:pure-color="store.currentlyOpenDocument.gridColor"
+          @pure-color-change="
+            () => {
+              store.forceRender = true;
+              store.flushCanvas = true;
+            }
+          "
+        />
+      </div>
+      <div
+        v-if="(store.currentlyOpenDocument?.pages.length || 0) > 0"
+        class="flex items-center gap-2 ml-4 text-xl mt-4"
+      >
+        <div>{{ "Page Width" }}</div>
+        <input
+          class="w-16 bg-black border"
+          type="text"
+          :value="store.currentlyOpenDocument?.size_mm.x"
+          @input="
+            (e) => setPageWidth(Number((e.target as HTMLInputElement).value))
+          "
+        />
+        <div>{{ "mm" }}</div>
+      </div>
+      <div
+        v-if="(store.currentlyOpenDocument?.pages.length || 0) > 0"
+        class="flex items-center gap-2 ml-4 text-xl mt-4"
+      >
+        <div>{{ "Page Height" }}</div>
+        <input
+          class="w-16 bg-black border"
+          type="text"
+          :value="store.currentlyOpenDocument?.size_mm.y"
+          @input="
+            (e) => setPageHeight(Number((e.target as HTMLInputElement).value))
+          "
+        />
+        <div>{{ "mm" }}</div>
+      </div>
     </div>
   </div>
 </template>

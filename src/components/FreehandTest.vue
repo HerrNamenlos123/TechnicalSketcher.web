@@ -600,7 +600,7 @@ onUnmounted(() => {
   >
     <canvas
       ref="mainCanvas"
-      class="absolute pointer-events-none"
+      class="absolute pointer-events-none rounded-r-3xl"
       :style="{
         left: currentDocument.offset.x + 'px',
         top: currentDocument.offset.y + 'px',

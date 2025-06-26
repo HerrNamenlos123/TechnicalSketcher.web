@@ -23,14 +23,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col bg-background h-svh w-svh" @wheel.prevent>
+  <div
+    class="flex flex-col bg-background h-svh w-svh overflow-hidden"
+    @wheel.prevent
+  >
     <div
       v-if="store.paperTexture"
-      ref="canvasWrapper"
-      class="w-full h-full flex flex-col"
+      class="flex-grow flex flex-col overflow-hidden"
     >
       <TopBar />
-      <div class="w-full flex-grow flex">
+      <div class="w-full flex-grow flex overflow-hidden">
         <SideNav />
         <FreehandTest
           v-if="store.currentlyOpenDocument"
