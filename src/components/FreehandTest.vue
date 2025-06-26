@@ -500,6 +500,32 @@ const pointerDownHandler = (e: PointerEvent) => {
       page.previewShape = undefined;
       eraserSizePx.value = store.eraserSizePx;
       eraserPosPx.value = mousePosMm.mul(currentDocument.value.zoom_px_per_mm);
+
+      for (const shape of page.shapes) {
+        const outlineMm = store
+          .getPath(shape.penThickness, shape.points, "accurate")
+          .map((p) => new Vec2(p[0], p[1]));
+        shape.eraseBBox = {
+          left: outlineMm[0].x,
+          right: outlineMm[0].x,
+          bottom: outlineMm[0].y,
+          top: outlineMm[0].y,
+        };
+        for (const p of outlineMm) {
+          if (p.x < shape.eraseBBox.left) {
+            shape.eraseBBox.left = p.x;
+          }
+          if (p.x > shape.eraseBBox.right) {
+            shape.eraseBBox.right = p.x;
+          }
+          if (p.y < shape.eraseBBox.top) {
+            shape.eraseBBox.top = p.y;
+          }
+          if (p.y > shape.eraseBBox.bottom) {
+            shape.eraseBBox.bottom = p.y;
+          }
+        }
+      }
     }
   }
   store.forceRender = true;
@@ -540,9 +566,9 @@ const pointerMoveHandler = (e: PointerEvent) => {
       });
     } else {
       for (const shape of page.shapes) {
-        const outlineMm = store
-          .getPath(shape.penThickness, shape.points, "accurate")
-          .map((p) => new Vec2(p[0], p[1]));
+        if (!shape.eraseBBox) {
+          break;
+        }
 
         eraserSizePx.value = store.eraserSizePx;
         const eraserSizeMm =
@@ -551,6 +577,19 @@ const pointerMoveHandler = (e: PointerEvent) => {
           currentDocument.value.zoom_px_per_mm,
         );
         const eraserPosMm = mousePosMm;
+
+        if (
+          eraserPosMm.x + eraserSizeMm / 2 < shape.eraseBBox.left ||
+          eraserPosMm.x - eraserSizeMm / 2 > shape.eraseBBox.right ||
+          eraserPosMm.y + eraserSizeMm / 2 < shape.eraseBBox.top ||
+          eraserPosMm.y - eraserSizeMm / 2 > shape.eraseBBox.bottom
+        ) {
+          continue;
+        }
+
+        const outlineMm = store
+          .getPath(shape.penThickness, shape.points, "accurate")
+          .map((p) => new Vec2(p[0], p[1]));
 
         let deleteShape = false;
         if (pointInPolygon(eraserPosMm, outlineMm)) {
@@ -721,6 +760,7 @@ onMounted(async () => {
   store.currentPageCanvas = createCanvas();
   await nextTick();
   await nextTick();
+  store.flushCanvas = true;
   render();
 });
 

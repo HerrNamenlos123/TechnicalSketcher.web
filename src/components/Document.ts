@@ -10,6 +10,12 @@ export type Point = {
 
 export type Shape = {
   points: Point[];
+  eraseBBox?: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }
   lagCompensation?: boolean;
   penThickness: number;
   penColor: string;
