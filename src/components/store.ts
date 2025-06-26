@@ -24,6 +24,7 @@ export const useStore = defineStore("main", {
     penColor: "#000000",
     perfectFreehandAccuracyScaling: 10,
     pageGap: 1.03,
+    eraserSizePx: 5,
     gridLineThicknessMm: 0.2,
     gridLineDistanceMm: 10,
     lagCompensation: false,

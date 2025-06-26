@@ -291,6 +291,23 @@ const renderPage = async (
   if (page.previewShape) {
     await drawShape(viewCtx, page.previewShape, currentDocument.value, "fast");
   }
+
+  if (eraserPosPx.value) {
+    const ctx = viewCtx;
+    ctx.beginPath();
+    ctx.arc(
+      eraserPosPx.value.x,
+      eraserPosPx.value.y,
+      eraserSizePx.value / 2,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "black";
+    ctx.stroke();
+  }
 };
 
 const performZoom = (ratio: number, center: Vec2) => {
@@ -335,6 +352,8 @@ const lastZoomFingerDistance = ref(0);
 const lastZoomCenter = ref(new Vec2());
 const contextClickPositionPx = ref<Vec2 | undefined>(undefined);
 const selectionPathPx = ref<Vec2[]>([]);
+const eraserPosPx = ref<undefined | Vec2>();
+const eraserSizePx = ref(0);
 
 const updateZoomingPointers = () => {
   if (!viewport.value) return;
@@ -401,6 +420,48 @@ const findPage = (offsetX: number, offsetY: number) => {
   return undefined;
 };
 
+function pointInPolygon(point: Vec2, polygon: Vec2[]) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x,
+      yi = polygon[i].y;
+    const xj = polygon[j].x,
+      yj = polygon[j].y;
+
+    const intersect =
+      yi > point.y !== yj > point.y &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function circleOutlineIntersectsLine(
+  c: Vec2,
+  r: number,
+  a: Vec2,
+  b: Vec2,
+  epsilon = 0.1, // acceptable tolerance in mm
+): boolean {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const acx = c.x - a.x;
+  const acy = c.y - a.y;
+
+  const abLenSq = abx * abx + aby * aby;
+  const t = Math.max(0, Math.min(1, (acx * abx + acy * aby) / abLenSq));
+
+  const closestX = a.x + t * abx;
+  const closestY = a.y + t * aby;
+
+  const dx = closestX - c.x;
+  const dy = closestY - c.y;
+
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  return Math.abs(dist - r) <= epsilon;
+}
+
 const pointerDownHandler = (e: PointerEvent) => {
   if (!viewport.value || !mainCanvas.value) return;
   if (e.pointerType == "touch") {
@@ -439,6 +500,8 @@ const pointerDownHandler = (e: PointerEvent) => {
       };
     } else if (eraser) {
       page.previewShape = undefined;
+      eraserSizePx.value = store.eraserSizePx;
+      eraserPosPx.value = mousePosMm.mul(currentDocument.value.zoom_px_per_mm);
     }
   }
   store.forceRender = true;
@@ -479,21 +542,44 @@ const pointerMoveHandler = (e: PointerEvent) => {
       });
     } else {
       for (const shape of page.shapes) {
-        const deleteDistance = shape.penThickness / 2;
-        for (const point of shape.points) {
-          if (
-            new Vec2(
-              point.x / store.perfectFreehandAccuracyScaling,
-              point.y / store.perfectFreehandAccuracyScaling,
-            )
-              .sub(mousePosMm)
-              .mag() < deleteDistance
-          ) {
-            page.shapes = page.shapes.filter((s) => s !== shape);
-            store.forceRender = true;
-            store.flushCanvas = true;
-            return;
+        const outlineMm = store
+          .getPath(shape.penThickness, shape.points, "accurate")
+          .map((p) =>
+            new Vec2(p[0], p[1]).div(store.perfectFreehandAccuracyScaling),
+          );
+
+        eraserSizePx.value = store.eraserSizePx;
+        const eraserSizeMm =
+          eraserSizePx.value / currentDocument.value.zoom_px_per_mm;
+        eraserPosPx.value = mousePosMm.mul(
+          currentDocument.value.zoom_px_per_mm,
+        );
+        const eraserPosMm = mousePosMm;
+
+        let deleteShape = false;
+        if (pointInPolygon(eraserPosMm, outlineMm)) {
+          deleteShape = true;
+        } else {
+          for (let i = 0; i < outlineMm.length - 1; i++) {
+            if (
+              circleOutlineIntersectsLine(
+                eraserPosMm,
+                eraserSizeMm / 2,
+                outlineMm[i],
+                outlineMm[i + 1],
+              )
+            ) {
+              deleteShape = true;
+              break;
+            }
           }
+        }
+
+        if (deleteShape) {
+          page.shapes = page.shapes.filter((s) => s !== shape);
+          store.forceRender = true;
+          store.flushCanvas = true;
+          return;
         }
       }
     }
@@ -517,20 +603,19 @@ const pointerUpHandler = (e: PointerEvent) => {
     const page = findPage(e.offsetX, e.offsetY);
     if (contextClickPositionPx.value) {
       e.preventDefault();
-      let perimeter_px = 0;
+      let perimeterPx = 0;
       for (let i = 0; i < selectionPathPx.value.length - 1; i++) {
-        const a_px = selectionPathPx.value[i];
-        const b_px = selectionPathPx.value[i + 1];
-        const dist_px = a_px.sub(b_px).mag();
-        perimeter_px += dist_px;
+        const aPx = selectionPathPx.value[i];
+        const bPx = selectionPathPx.value[i + 1];
+        const distPx = aPx.sub(bPx).mag();
+        perimeterPx += distPx;
       }
-      if (perimeter_px <= CONTEXT_MENU_PERIMETER_LIMIT_PX) {
+      if (perimeterPx <= CONTEXT_MENU_PERIMETER_LIMIT_PX) {
         console.log("Popup");
       } else {
         console.log("Select");
       }
     } else {
-      if (!page?.previewShape) return;
       const topLeft = new Vec2(
         mainCanvas.value.getBoundingClientRect().left -
           viewport.value.getBoundingClientRect().left,
@@ -539,37 +624,39 @@ const pointerUpHandler = (e: PointerEvent) => {
       );
       const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
       const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
-      page.previewShape.points.push({
-        x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
-        y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
-        pressure: 0.5,
-      });
-
-      // const pooledCanvas = store.canvasPool.find(
-      //   (e) => e.pageIndex === page.pageIndex,
-      // );
-      // if (pooledCanvas) {
-      drawShape(
-        getCtx(store.currentPageCanvas),
-        page.previewShape,
-        currentDocument.value,
-        "accurate",
-      );
-      // } else {
-      //   console.warn("Page not found");
-      // }
-      page.shapes.push({
-        points: page.previewShape.points,
-        penColor: store.penColor,
-        penThickness: store.penSizeMm,
-      });
-      page.previewShape = undefined;
-
-      if (page.pageIndex === currentDocument.value.pages.length - 1) {
-        currentDocument.value.pages.push({
-          pageIndex: currentDocument.value.pages.length,
-          shapes: [],
+      if (page?.previewShape) {
+        page.previewShape.points.push({
+          x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
+          y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
+          pressure: 0.5,
         });
+
+        // const pooledCanvas = store.canvasPool.find(
+        //   (e) => e.pageIndex === page.pageIndex,
+        // );
+        // if (pooledCanvas) {
+        drawShape(
+          getCtx(store.currentPageCanvas),
+          page.previewShape,
+          currentDocument.value,
+          "accurate",
+        );
+        // } else {
+        //   console.warn("Page not found");
+        // }
+        page.shapes.push({
+          points: page.previewShape.points,
+          penColor: store.penColor,
+          penThickness: store.penSizeMm,
+        });
+        page.previewShape = undefined;
+
+        if (page.pageIndex === currentDocument.value.pages.length - 1) {
+          currentDocument.value.pages.push({
+            pageIndex: currentDocument.value.pages.length,
+            shapes: [],
+          });
+        }
       }
 
       store.saveDocument(currentDocument.value);
@@ -578,6 +665,7 @@ const pointerUpHandler = (e: PointerEvent) => {
   store.forceRender = true;
   contextClickPositionPx.value = undefined;
   selectionPathPx.value = [];
+  eraserPosPx.value = undefined;
 };
 
 watch(
@@ -626,6 +714,9 @@ const keydown = (e: KeyboardEvent) => {
   }
   if (e.key === "r") {
     store.penSizeMm = 0.5;
+  }
+  if (e.key === "t") {
+    store.penSizeMm = 5;
   }
 };
 
