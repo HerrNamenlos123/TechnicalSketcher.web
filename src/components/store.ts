@@ -403,19 +403,27 @@ export const useStore = defineStore("main", {
 
       // If color is in hex format (#RGB or #RRGGBB)
       if (colorStr.startsWith('#')) {
-        let r, g, b;
+        let r, g, b, a;
         if (colorStr.length === 4) {  // #RGB shorthand
           r = parseInt(colorStr[1] + colorStr[1], 16);
           g = parseInt(colorStr[2] + colorStr[2], 16);
           b = parseInt(colorStr[3] + colorStr[3], 16);
+          a = 255;
         } else if (colorStr.length === 7) {  // #RRGGBB
           r = parseInt(colorStr.slice(1, 3), 16);
           g = parseInt(colorStr.slice(3, 5), 16);
           b = parseInt(colorStr.slice(5, 7), 16);
-        } else {
+          a = 255;
+        } else if (colorStr.length === 9) {  // #RRGGBBAA
+          r = parseInt(colorStr.slice(1, 3), 16);
+          g = parseInt(colorStr.slice(3, 5), 16);
+          b = parseInt(colorStr.slice(5, 7), 16);
+          a = parseInt(colorStr.slice(7, 9), 16);
+        }
+        else {
           throw new Error('Invalid hex color length');
         }
-        return { r, g, b, a: 1 };  // alpha defaults to 1 (opaque)
+        return { r, g, b, a: a / 255 };
       }
 
       throw new Error('Unsupported color format');
