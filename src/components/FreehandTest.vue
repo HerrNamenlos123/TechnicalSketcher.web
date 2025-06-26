@@ -10,8 +10,9 @@ import {
 } from "./Document";
 import { useStore } from "./store";
 
-const store = useStore();
+const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
+const store = useStore();
 const currentDocument = defineModel<Document>("document", { required: true });
 
 const props = defineProps<{
@@ -205,6 +206,35 @@ function drawImageCover(
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
 }
 
+function drawSelection(ctx: CanvasRenderingContext2D, points: Vec2[]) {
+  if (points.length < 2) return;
+
+  ctx.save(); // Save current canvas state
+
+  // Configure fill style (semi-transparent)
+  ctx.fillStyle = "rgba(0, 128, 255, 0.1)"; // Light blue with transparency
+
+  // Configure stroke style (thick, dashed black outline)
+  ctx.strokeStyle = "black";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]); // Dash 6px, gap 4px
+
+  // Begin path
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+
+  ctx.closePath(); // Close the polygon
+
+  ctx.fill(); // Fill the shape
+  ctx.stroke(); // Draw the outline
+
+  ctx.restore(); // Restore previous state
+}
+
 const renderPage = async (
   offCanvas: HTMLCanvasElement,
   page: Page,
@@ -256,9 +286,9 @@ const renderPage = async (
   viewCtx.clearRect(0, 0, pageSize.x, pageSize.y);
 
   viewCtx.drawImage(offCanvas, 0, 0, pageSize.x, pageSize.y);
+  drawSelection(viewCtx, selectionPathPx.value);
 
   if (page.previewShape) {
-    console.log("Rendering preview", page.previewShape.points.length);
     await drawShape(viewCtx, page.previewShape, currentDocument.value, "fast");
   }
 };
@@ -303,6 +333,8 @@ const pointerEvents = ref<PointerEvent[]>([]);
 const isZooming = ref(false);
 const lastZoomFingerDistance = ref(0);
 const lastZoomCenter = ref(new Vec2());
+const contextClickPositionPx = ref<Vec2 | undefined>(undefined);
+const selectionPathPx = ref<Vec2[]>([]);
 
 const updateZoomingPointers = () => {
   if (!viewport.value) return;
@@ -379,17 +411,20 @@ const pointerDownHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "pen") {
     e.preventDefault();
     const eraser = (e.buttons & 32) !== 0;
+    const backButton = (e.buttons & 2) !== 0;
     const page = findPage(e.offsetX, e.offsetY);
+    const topLeft = new Vec2(
+      mainCanvas.value.getBoundingClientRect().left -
+        viewport.value.getBoundingClientRect().left,
+      mainCanvas.value.getBoundingClientRect().top -
+        viewport.value.getBoundingClientRect().top,
+    );
+    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
+    const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     if (!page) return;
-    if (page && !eraser) {
-      const topLeft = new Vec2(
-        mainCanvas.value.getBoundingClientRect().left -
-          viewport.value.getBoundingClientRect().left,
-        mainCanvas.value.getBoundingClientRect().top -
-          viewport.value.getBoundingClientRect().top,
-      );
-      const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
-      const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
+    if (backButton) {
+      contextClickPositionPx.value = mousePosPx;
+    } else if (!eraser) {
       page.previewShape = {
         points: [
           {
@@ -421,6 +456,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
     //
   } else if (e.pointerType == "pen") {
     const eraser = (e.buttons & 32) !== 0;
+    const backButton = (e.buttons & 2) !== 0;
     const page = findPage(e.offsetX, e.offsetY);
     if (!page) return;
     const topLeft = new Vec2(
@@ -431,7 +467,9 @@ const pointerMoveHandler = (e: PointerEvent) => {
     );
     const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
-    if (!eraser) {
+    if (backButton) {
+      selectionPathPx.value.push(mousePosPx);
+    } else if (!eraser) {
       if (!page?.previewShape) return;
       if (e.movementX === 0 && e.movementY === 0) return;
       page.previewShape.points.push({
@@ -477,51 +515,69 @@ const pointerUpHandler = (e: PointerEvent) => {
     //
   } else if (e.pointerType == "pen") {
     const page = findPage(e.offsetX, e.offsetY);
-    if (!page?.previewShape) return;
-    const topLeft = new Vec2(
-      mainCanvas.value.getBoundingClientRect().left -
-        viewport.value.getBoundingClientRect().left,
-      mainCanvas.value.getBoundingClientRect().top -
-        viewport.value.getBoundingClientRect().top,
-    );
-    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
-    const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
-    page.previewShape.points.push({
-      x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
-      y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
-      pressure: 0.5,
-    });
-
-    // const pooledCanvas = store.canvasPool.find(
-    //   (e) => e.pageIndex === page.pageIndex,
-    // );
-    // if (pooledCanvas) {
-    drawShape(
-      getCtx(store.currentPageCanvas),
-      page.previewShape,
-      currentDocument.value,
-      "accurate",
-    );
-    // } else {
-    //   console.warn("Page not found");
-    // }
-    page.shapes.push({
-      points: page.previewShape.points,
-      penColor: store.penColor,
-      penThickness: store.penSizeMm,
-    });
-    page.previewShape = undefined;
-
-    if (page.pageIndex === currentDocument.value.pages.length - 1) {
-      currentDocument.value.pages.push({
-        pageIndex: currentDocument.value.pages.length,
-        shapes: [],
+    if (contextClickPositionPx.value) {
+      e.preventDefault();
+      let perimeter_px = 0;
+      for (let i = 0; i < selectionPathPx.value.length - 1; i++) {
+        const a_px = selectionPathPx.value[i];
+        const b_px = selectionPathPx.value[i + 1];
+        const dist_px = a_px.sub(b_px).mag();
+        perimeter_px += dist_px;
+      }
+      if (perimeter_px <= CONTEXT_MENU_PERIMETER_LIMIT_PX) {
+        console.log("Popup");
+      } else {
+        console.log("Select");
+      }
+    } else {
+      if (!page?.previewShape) return;
+      const topLeft = new Vec2(
+        mainCanvas.value.getBoundingClientRect().left -
+          viewport.value.getBoundingClientRect().left,
+        mainCanvas.value.getBoundingClientRect().top -
+          viewport.value.getBoundingClientRect().top,
+      );
+      const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
+      const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
+      page.previewShape.points.push({
+        x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
+        y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
+        pressure: 0.5,
       });
-    }
 
-    store.saveDocument(currentDocument.value);
+      // const pooledCanvas = store.canvasPool.find(
+      //   (e) => e.pageIndex === page.pageIndex,
+      // );
+      // if (pooledCanvas) {
+      drawShape(
+        getCtx(store.currentPageCanvas),
+        page.previewShape,
+        currentDocument.value,
+        "accurate",
+      );
+      // } else {
+      //   console.warn("Page not found");
+      // }
+      page.shapes.push({
+        points: page.previewShape.points,
+        penColor: store.penColor,
+        penThickness: store.penSizeMm,
+      });
+      page.previewShape = undefined;
+
+      if (page.pageIndex === currentDocument.value.pages.length - 1) {
+        currentDocument.value.pages.push({
+          pageIndex: currentDocument.value.pages.length,
+          shapes: [],
+        });
+      }
+
+      store.saveDocument(currentDocument.value);
+    }
   }
   store.forceRender = true;
+  contextClickPositionPx.value = undefined;
+  selectionPathPx.value = [];
 };
 
 watch(
@@ -609,6 +665,7 @@ onUnmounted(() => {
   <div
     ref="viewport"
     class="relative w-full h-full overflow-hidden bg-white"
+    @contextmenu.prevent
     @keydown="keydown"
     @pointercancel="pointerUpHandler($event)"
     @pointerdown="pointerDownHandler($event)"
