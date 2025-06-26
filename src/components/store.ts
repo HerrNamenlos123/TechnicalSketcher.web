@@ -26,10 +26,11 @@ export const useStore = defineStore("main", {
     lagCompensation: false,
     forceRender: false,
     flushCanvas: false,
-    canvasPool: [] as {
-      canvas: HTMLCanvasElement,
-      pageIndex?: number,
-    }[],
+    currentPageCanvas: undefined as HTMLCanvasElement | undefined,
+    // canvasPool: [] as {
+    //   canvas: HTMLCanvasElement,
+    //   pageIndex?: number,
+    // }[],
   }),
   actions: {
     async initVault() {

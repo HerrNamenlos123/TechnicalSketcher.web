@@ -119,55 +119,49 @@ const createCanvas = () => {
   const pageSize = getDocumentSizePx(currentDocument.value);
   canvas.width = pageSize.x;
   canvas.height = pageSize.y;
-  store.canvasPool.push({
-    canvas: canvas,
-    pageIndex: undefined,
-  });
   return canvas;
 };
 
-const getCanvasFromPool = (pageIndex: number) => {
-  // First invalidate out of range pages
-  for (const entry of store.canvasPool) {
-    if (
-      entry.pageIndex &&
-      (entry.pageIndex > pageIndex + 4 || entry.pageIndex < pageIndex - 4)
-    ) {
-      entry.pageIndex = undefined;
-    }
-  }
-  // Reuse page if already exists
-  for (const entry of store.canvasPool) {
-    if (entry.pageIndex === pageIndex) {
-      return entry.canvas;
-    }
-  }
-  // Use unused canvas if any exist
-  for (const entry of store.canvasPool) {
-    if (entry.pageIndex === undefined) {
-      entry.pageIndex = pageIndex;
-      return entry.canvas;
-    }
-  }
-  // If all are used, create a new one
-  const canvas = createCanvas();
-  store.canvasPool.push({
-    canvas: canvas,
-    pageIndex: pageIndex,
-  });
-  return canvas;
-};
+// const getCanvasFromPool = (pageIndex: number) => {
+//   // First invalidate out of range pages
+//   for (const entry of store.canvasPool) {
+//     if (
+//       entry.pageIndex &&
+//       (entry.pageIndex > pageIndex + 4 || entry.pageIndex < pageIndex - 4)
+//     ) {
+//       entry.pageIndex = undefined;
+//     }
+//   }
+//   // Reuse page if already exists
+//   for (const entry of store.canvasPool) {
+//     if (entry.pageIndex === pageIndex) {
+//       return entry.canvas;
+//     }
+//   }
+//   // Use unused canvas if any exist
+//   for (const entry of store.canvasPool) {
+//     if (entry.pageIndex === undefined) {
+//       entry.pageIndex = pageIndex;
+//       return entry.canvas;
+//     }
+//   }
+//   // If all are used, create a new one
+//   const canvas = createCanvas();
+//   store.canvasPool.push({
+//     canvas: canvas,
+//     pageIndex: pageIndex,
+//   });
+//   return canvas;
+// };
 
 const render = async () => {
-  if (!currentDocument.value) return;
-  for (let di = -4; di <= 4; di++) {
-    const pageIndex = currentDocument.value.currentPageIndex + di;
-    if (pageIndex > 0 && pageIndex < currentDocument.value?.pages.length) {
-      const page = currentDocument.value.pages[pageIndex];
+  if (!currentDocument.value || !store.currentPageCanvas) return;
+  const pageIndex = currentDocument.value.currentPageIndex;
+  if (pageIndex >= 0 && pageIndex < currentDocument.value?.pages.length) {
+    const page = currentDocument.value.pages[pageIndex];
 
-      const canvas = getCanvasFromPool(pageIndex);
-      await renderPage(canvas, page, currentDocument.value);
-    }
+    // const canvas = getCanvasFromPool(pageIndex);
+    await renderPage(store.currentPageCanvas, page, currentDocument.value);
   }
   // requestAnimationFrame(render);
 };
@@ -193,12 +187,12 @@ const renderPage = async (
     store.flushCanvas = false;
     // This clears the canvas automatically
 
+    console.log("Rerendering offscreen canvas");
+
     await store.drawGridCanvas(offCtx, currentDocument.value);
 
-    for (const page of currentDocument.value.pages) {
-      for (const shape of page.shapes) {
-        await drawShape(offCtx, shape, currentDocument.value, "accurate");
-      }
+    for (const shape of page.shapes) {
+      await drawShape(offCtx, shape, currentDocument.value, "accurate");
     }
   }
 
@@ -218,9 +212,11 @@ const renderPage = async (
   viewCtx.clearRect(0, 0, pageSize.x, pageSize.y);
 
   viewCtx.drawImage(offCanvas, 0, 0, pageSize.x, pageSize.y);
+  console.log("Rendering main canvas");
 
   if (page.previewShape) {
     await drawShape(viewCtx, page.previewShape, currentDocument.value, "fast");
+    console.log("Rendering preview shape");
   }
 };
 
@@ -434,19 +430,19 @@ const pointerUpHandler = (e: PointerEvent) => {
       pressure: 0.5,
     });
 
-    const pooledCanvas = store.canvasPool.find(
-      (e) => e.pageIndex === page.pageIndex,
+    // const pooledCanvas = store.canvasPool.find(
+    //   (e) => e.pageIndex === page.pageIndex,
+    // );
+    // if (pooledCanvas) {
+    drawShape(
+      getCtx(store.currentPageCanvas),
+      page.previewShape,
+      currentDocument.value,
+      "accurate",
     );
-    if (pooledCanvas) {
-      drawShape(
-        getCtx(pooledCanvas.canvas),
-        page.previewShape,
-        currentDocument.value,
-        "accurate",
-      );
-    } else {
-      console.warn("Page not found");
-    }
+    // } else {
+    //   console.warn("Page not found");
+    // }
     page.shapes.push({
       points: page.previewShape.points,
       penColor: store.penColor,
@@ -515,16 +511,15 @@ const keydown = (e: KeyboardEvent) => {
 
 onMounted(() => {
   window.addEventListener("keydown", keydown);
-  while (store.canvasPool.length < 10) {
-    store.canvasPool.push({
-      canvas: createCanvas(),
-      pageIndex: undefined,
-    });
-  }
+  store.currentPageCanvas = createCanvas();
 });
 
 watch(
-  [() => mainCanvas.value, () => currentDocument.value.size_mm],
+  [
+    () => mainCanvas.value,
+    () => currentDocument.value.size_mm,
+    () => currentDocument.value.zoom_px_per_mm,
+  ],
   () => {
     if (mainCanvas.value) {
       const pageSize = getDocumentSizePx(currentDocument.value);
@@ -537,9 +532,9 @@ watch(
 
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
-  for (const entry of store.canvasPool) {
-    entry.pageIndex = -1;
-  }
+  // for (const entry of store.canvasPool) {
+  //   entry.pageIndex = -1;
+  // }
 });
 </script>
 

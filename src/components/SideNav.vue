@@ -4,6 +4,7 @@ import { useStore } from "./store";
 import { onMounted, ref } from "vue";
 import BasicIcon from "./BasicIcon.vue";
 import type { FSFileEntry } from "@/types";
+import Button from "./Button.vue";
 
 const openVault = async () => {
   await store.initVault();
@@ -99,21 +100,14 @@ const setPageHeight = (y: number) => {
         <div class="">Filepath</div>
         <input v-model="createFilepath" class="bg-black" />
         <div class="flex gap-4">
-          <div
-            class="p-1 border rounded-md cursor-pointer w-fit"
+          <Button
+            text="Create"
             @click="
               store.createDocument(createFilepath);
               createDocumentPopup = false;
             "
-          >
-            Create
-          </div>
-          <div
-            class="p-1 border rounded-md cursor-pointer w-fit"
-            @click="createDocumentPopup = false"
-          >
-            Cancel
-          </div>
+          />
+          <Button text="Cancel" @click="createDocumentPopup = false" />
         </div>
       </div>
     </div>
@@ -122,16 +116,11 @@ const setPageHeight = (y: number) => {
       v-if="store.currentlyOpenDocument?.fileHandle !== undefined"
       class="w-full flex justify-center mt-4 text-xl relative"
     >
-      <div
-        class="p-1 border rounded-md cursor-pointer flex items-center gap-2"
+      <Button
+        :icon="(!exportDone && 'PhFilePdf') || undefined"
+        :text="!exportDone ? 'Export PDF' : 'Done'"
         @click="exportDoc(store.currentlyOpenDocument.fileHandle)"
-      >
-        <template v-if="!exportDone">
-          Export PDF
-          <BasicIcon icon="PhFilePdf" />
-        </template>
-        <template v-else> Done </template>
-      </div>
+      />
     </div>
 
     <div
