@@ -74,9 +74,7 @@ const drawShape = async (
   }
 
   const outline = store.getPath(shape.penThickness, points, mode);
-
-  const scalingFactor =
-    currentDocument.value.zoom_px_per_mm / store.perfectFreehandAccuracyScaling;
+  const scalingFactor = currentDocument.value.zoom_px_per_mm;
 
   const topLeft = new Vec2(
     mainCanvas.value.getBoundingClientRect().left -
@@ -489,8 +487,8 @@ const pointerDownHandler = (e: PointerEvent) => {
       page.previewShape = {
         points: [
           {
-            x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
-            y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
+            x: mousePosMm.x,
+            y: mousePosMm.y,
             pressure: 0.5,
           },
         ],
@@ -536,17 +534,15 @@ const pointerMoveHandler = (e: PointerEvent) => {
       if (!page?.previewShape) return;
       if (e.movementX === 0 && e.movementY === 0) return;
       page.previewShape.points.push({
-        x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
-        y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
+        x: mousePosMm.x,
+        y: mousePosMm.y,
         pressure: 0.5,
       });
     } else {
       for (const shape of page.shapes) {
         const outlineMm = store
           .getPath(shape.penThickness, shape.points, "accurate")
-          .map((p) =>
-            new Vec2(p[0], p[1]).div(store.perfectFreehandAccuracyScaling),
-          );
+          .map((p) => new Vec2(p[0], p[1]));
 
         eraserSizePx.value = store.eraserSizePx;
         const eraserSizeMm =
@@ -626,8 +622,8 @@ const pointerUpHandler = (e: PointerEvent) => {
       const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
       if (page?.previewShape) {
         page.previewShape.points.push({
-          x: mousePosMm.x * store.perfectFreehandAccuracyScaling,
-          y: mousePosMm.y * store.perfectFreehandAccuracyScaling,
+          x: mousePosMm.x,
+          y: mousePosMm.y,
           pressure: 0.5,
         });
 

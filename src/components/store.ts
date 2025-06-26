@@ -164,8 +164,8 @@ export const useStore = defineStore("main", {
               pageIndex: i,
               shapes: p.shapes.map((s) => ({
                 points: s.points.map((point) => ({
-                  x: point.x * this.perfectFreehandAccuracyScaling,
-                  y: point.y * this.perfectFreehandAccuracyScaling,
+                  x: point.x,
+                  y: point.y,
                   pressure: point.pressure,
                 })),
                 penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
@@ -226,8 +226,8 @@ export const useStore = defineStore("main", {
           pages: document.pages.map((p) => ({
             shapes: p.shapes.map((s) => ({
               points: s.points.map((point) => ({
-                x: point.x / this.perfectFreehandAccuracyScaling,
-                y: point.y / this.perfectFreehandAccuracyScaling,
+                x: point.x,
+                y: point.y,
                 pressure: point.pressure,
               })),
               penThickness: s.penThickness,
@@ -293,22 +293,27 @@ export const useStore = defineStore("main", {
       this.loadVault();
     },
     getPath(penSize: number, points: Point[], mode: "fast" | "accurate") {
-      return getStroke(points, {
+      const scaledPoints = points.map((p) => ({
+        pressure: p.pressure,
+        x: p.x * this.perfectFreehandAccuracyScaling,
+        y: p.y * this.perfectFreehandAccuracyScaling,
+      }));
+      const result = getStroke(scaledPoints, {
         size: penSize * this.perfectFreehandAccuracyScaling,
         smoothing: 1,
         streamline: mode === "fast" ? 0.6 : 0.6,
         thinning: 0.1,
       });
+      const scaledResult = result.map((p) => [p[0] / this.perfectFreehandAccuracyScaling, p[1] / this.perfectFreehandAccuracyScaling]);
+      return scaledResult;
     },
     async exportDocumentAsPdf(doc: Document) {
-      const freehandScaling = this.perfectFreehandAccuracyScaling;
-
       function getSvgPathFromStroke(points: number[][]): string {
         if (!points.length) return "";
 
         const d = [];
         d.push(
-          `M${points[0][0] / freehandScaling} ${points[0][1] / freehandScaling}`,
+          `M${points[0][0]} ${points[0][1]}`,
         );
 
         for (let i = 1; i < points.length - 1; i++) {
@@ -317,7 +322,7 @@ export const useStore = defineStore("main", {
           const mx = (x0 + x1) / 2;
           const my = (y0 + y1) / 2;
           d.push(
-            `Q${x0 / freehandScaling} ${y0 / freehandScaling} ${mx / freehandScaling} ${my / freehandScaling}`,
+            `Q${x0} ${y0} ${mx} ${my}`,
           );
         }
 
