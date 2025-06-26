@@ -4,6 +4,9 @@ import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, 
 import { Vec2 } from "./Vector";
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import getStroke from "perfect-freehand";
+import PaperTexture from "@/assets/paper-texture.jpg";
+import PaperTextureWhite from "@/assets/paper-texture-white.avif";
+import PaperTextureTiling from "@/assets/paper-texture-tiling.jpg";
 
 export function assert<T>(
   value: T | null | undefined,
@@ -27,6 +30,7 @@ export const useStore = defineStore("main", {
     forceRender: false,
     flushCanvas: false,
     currentPageCanvas: undefined as HTMLCanvasElement | undefined,
+    paperTexture: undefined as HTMLImageElement | undefined,
     // canvasPool: [] as {
     //   canvas: HTMLCanvasElement,
     //   pageIndex?: number,
@@ -391,5 +395,18 @@ export const useStore = defineStore("main", {
         });
       }
     },
+    async init() {
+      // this.paperTexture = await this.loadImage(PaperTexture);
+      // this.paperTexture = await this.loadImage(PaperTextureWhite);
+      this.paperTexture = await this.loadImage(PaperTextureTiling);
+    },
+    loadImage(src: string): Promise<HTMLImageElement> {
+      return new Promise((resolve, reject) => {
+        const img = new Image()
+        img.src = src
+        img.onload = () => resolve(img)
+        img.onerror = reject
+      })
+    }
   },
 });

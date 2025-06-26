@@ -169,13 +169,47 @@ const render = async () => {
   // requestAnimationFrame(render);
 };
 
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement | ImageBitmap,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  const iw = img.width;
+  const ih = img.height;
+  const cw = canvasWidth;
+  const ch = canvasHeight;
+
+  const ir = iw / ih;
+  const cr = cw / ch;
+
+  let sx = 0,
+    sy = 0,
+    sw = iw,
+    sh = ih;
+
+  if (ir > cr) {
+    // Image is wider than canvas: crop sides
+    sh = ih;
+    sw = ih * cr;
+    sx = (iw - sw) / 2;
+  } else {
+    // Image is taller than canvas: crop top/bottom
+    sw = iw;
+    sh = iw / cr;
+    sy = (ih - sh) / 2;
+  }
+
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+}
+
 const renderPage = async (
   offCanvas: HTMLCanvasElement,
   page: Page,
   doc: Document,
 ) => {
   const pageSize = getDocumentSizePx(doc);
-  const offCtx = getCtx(offCanvas);
+  let offCtx = getCtx(offCanvas);
   const viewCtx = getCtx(mainCanvas.value);
 
   // Offscreen canvas
@@ -189,6 +223,11 @@ const renderPage = async (
     offCanvas.height = pageSize.y;
     store.flushCanvas = false;
     // This clears the canvas automatically
+    offCtx = getCtx(offCanvas);
+
+    if (store.paperTexture) {
+      drawImageCover(offCtx, store.paperTexture, pageSize.x, pageSize.y);
+    }
 
     console.log("Rerendering offscreen canvas");
 
@@ -217,6 +256,7 @@ const renderPage = async (
   viewCtx.drawImage(offCanvas, 0, 0, pageSize.x, pageSize.y);
 
   if (page.previewShape) {
+    console.log("Rendering preview", page.previewShape.points.length);
     await drawShape(viewCtx, page.previewShape, currentDocument.value, "fast");
   }
 };
@@ -334,8 +374,8 @@ const pointerDownHandler = (e: PointerEvent) => {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page) return;
     if (page && !eraser) {
-      const mousePosPx = currentDocument.value.offset.sub(
-        new Vec2(e.offsetX, e.offsetY),
+      const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(
+        currentDocument.value.offset,
       );
       const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
       page.previewShape = {
@@ -371,8 +411,8 @@ const pointerMoveHandler = (e: PointerEvent) => {
     const eraser = (e.buttons & 32) !== 0;
     const page = findPage(e.offsetX, e.offsetY);
     if (!page) return;
-    const mousePosPx = currentDocument.value.offset.sub(
-      new Vec2(e.offsetX, e.offsetY),
+    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(
+      currentDocument.value.offset,
     );
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     if (!eraser) {
@@ -397,6 +437,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
           ) {
             page.shapes = page.shapes.filter((s) => s !== shape);
             store.forceRender = true;
+            store.flushCanvas = true;
             return;
           }
         }
@@ -421,8 +462,8 @@ const pointerUpHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "pen") {
     const page = findPage(e.offsetX, e.offsetY);
     if (!page?.previewShape) return;
-    const mousePosPx = currentDocument.value.offset.sub(
-      new Vec2(e.offsetX, e.offsetY),
+    const mousePosPx = new Vec2(e.offsetX, e.offsetY).sub(
+      currentDocument.value.offset,
     );
     const mousePosMm = mousePosPx.div(currentDocument.value.zoom_px_per_mm);
     page.previewShape.points.push({

@@ -13,8 +13,9 @@ const keydown = (e: KeyboardEvent) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener("keydown", keydown);
+  await store.init();
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
@@ -23,7 +24,11 @@ onUnmounted(() => {
 
 <template>
   <div class="flex flex-col bg-background h-svh w-svh" @wheel.prevent>
-    <div ref="canvasWrapper" class="w-full h-full flex flex-col">
+    <div
+      v-if="store.paperTexture"
+      ref="canvasWrapper"
+      class="w-full h-full flex flex-col"
+    >
       <TopBar />
       <div class="w-full flex-grow flex">
         <SideNav />
