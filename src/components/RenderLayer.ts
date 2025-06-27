@@ -155,7 +155,7 @@ export class RenderLayer {
         this.ctx.save();
         this.ctx.fillStyle = "rgba(0, 128, 255, 0.1)";
         this.ctx.strokeStyle = "black";
-        this.ctx.lineWidth = 2;
+        this.ctx.lineWidth = 1;
         this.ctx.setLineDash([6, 4]);
 
         this.ctx.beginPath();
