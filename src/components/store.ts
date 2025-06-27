@@ -1,6 +1,6 @@
 import type { FSDirEntry, FSFileEntry, TskFileFormat, VaultFS } from "@/types";
 import { defineStore } from "pinia";
-import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, getDocumentSizePx, DEFAULT_DOCUMENT_OFFSET, type BBox, type Shape } from "./Document";
+import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, getDocumentSizePx, DEFAULT_DOCUMENT_OFFSET, type BBox, type Shape, type ImageShape, type LineShape } from "./Document";
 import { Vec2 } from "./Vector";
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import getStroke from "perfect-freehand";
@@ -28,31 +28,50 @@ export function isPointInBBox(bbox: BBox, point: Vec2) {
   return point.x >= bbox.left && point.x <= bbox.right && point.y >= bbox.top && point.y <= bbox.bottom;
 }
 
-export function buildShapeBBox(shape: Shape) {
-  const outlineMm = useStore()
-    .getPath(shape.penThickness, shape.points, "accurate")
-    .map((p) => new Vec2(p[0], p[1]));
-  const bbox: BBox = {
-    left: outlineMm[0].x,
-    right: outlineMm[0].x,
-    bottom: outlineMm[0].y,
-    top: outlineMm[0].y,
-  };
-  for (const p of outlineMm) {
-    if (p.x < bbox.left) {
-      bbox.left = p.x;
+export function updateShapeBBox(shape: Shape) {
+  if (shape.variant === "Line") {
+    const outlineMm = useStore()
+      .getPath(shape.penThickness, shape.points, "accurate")
+      .map((p) => new Vec2(p[0], p[1]));
+    const bbox: BBox = {
+      left: outlineMm[0].x,
+      right: outlineMm[0].x,
+      bottom: outlineMm[0].y,
+      top: outlineMm[0].y,
+    };
+    for (const p of outlineMm) {
+      if (p.x < bbox.left) {
+        bbox.left = p.x;
+      }
+      if (p.x > bbox.right) {
+        bbox.right = p.x;
+      }
+      if (p.y < bbox.top) {
+        bbox.top = p.y;
+      }
+      if (p.y > bbox.bottom) {
+        bbox.bottom = p.y;
+      }
     }
-    if (p.x > bbox.right) {
-      bbox.right = p.x;
-    }
-    if (p.y < bbox.top) {
-      bbox.top = p.y;
-    }
-    if (p.y > bbox.bottom) {
-      bbox.bottom = p.y;
-    }
+    shape.bbox = bbox;
   }
-  return bbox;
+  else {
+    shape.bbox = {
+      left: shape.position.x,
+      top: shape.position.y,
+      right: shape.position.x + shape.size.x,
+      bottom: shape.position.y + shape.size.y,
+    };
+  }
+}
+
+export function combineBBox(a: BBox, b: BBox): BBox {
+  return {
+    left: Math.min(a.left, b.left),
+    right: Math.max(a.right, b.right),
+    top: Math.min(a.top, b.top),
+    bottom: Math.max(a.bottom, b.bottom),
+  }
 }
 
 export const useStore = defineStore("main", {
@@ -67,11 +86,9 @@ export const useStore = defineStore("main", {
     eraserSizePx: 5,
     gridLineThicknessMm: 0.2,
     gridLineDistanceMm: 10,
-    lagCompensation: false,
-    forceRender: false,
-    flushCanvas: false,
-    currentPageCanvas: undefined as HTMLCanvasElement | undefined,
     paperTexture: undefined as HTMLImageElement | undefined,
+    triggerRender: false,
+    deepRender: false,
     // canvasPool: [] as {
     //   canvas: HTMLCanvasElement,
     //   pageIndex?: number,
@@ -202,25 +219,42 @@ export const useStore = defineStore("main", {
             async (p, i): Promise<Page> =>
             ({
               pageIndex: i,
-              shapes: p.shapes.map((s) => ({
-                points: s.points.map((point) => ({
-                  x: point.x,
-                  y: point.y,
-                  pressure: point.pressure,
-                })),
-                penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
-                penThickness: s.penThickness,
+              shapes: await Promise.all(p.shapes.map(async (s) => {
+                if (s.variant === "Line") {
+                  const line = {
+                    variant: "Line",
+                    points: s.points.map((point) => ({
+                      x: point.x,
+                      y: point.y,
+                      pressure: point.pressure,
+                    })),
+                    bbox: { left: 0, right: 0, top: 0, bottom: 0 },
+                    penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
+                    penThickness: s.penThickness,
+                  } satisfies LineShape;
+                  updateShapeBBox(line);
+                  return line;
+                }
+                else if (s.variant === "Image") {
+                  const image = {
+                    variant: "Image",
+                    position: {
+                      x: s.position.x,
+                      y: s.position.y,
+                    },
+                    bbox: { left: 0, right: 0, top: 0, bottom: 0 },
+                    base64ImageData: s.base64ImageData,
+                    image: await loadImageAsync(s.base64ImageData),
+                    size: s.size,
+                  } satisfies ImageShape;
+                  updateShapeBBox(image);
+                  return image;
+                }
+                else {
+                  throw new Error();
+                }
               })),
-              images: p.images && await Promise.all(p.images.map(async (i) => ({
-                position: {
-                  x: i.position.x,
-                  y: i.position.y,
-                },
-                base64ImageData: i.base64ImageData,
-                image: await loadImageAsync(i.base64ImageData),
-                size: i.size,
-              }))) || [],
-              previewShape: undefined,
+              previewLine: undefined,
             })),
           ),
           size_mm:
@@ -252,8 +286,6 @@ export const useStore = defineStore("main", {
         ) {
           this.openDocuments[i] = newDoc;
           this.currentlyOpenDocument = newDoc;
-          this.forceRender = true;
-          this.flushCanvas = true;
           return;
         }
       }
@@ -261,8 +293,6 @@ export const useStore = defineStore("main", {
       // No match
       this.openDocuments.push(newDoc);
       this.currentlyOpenDocument = newDoc;
-      this.forceRender = true;
-      this.flushCanvas = true;
     },
     async saveDocument(document: Document) {
       const output: TskFileFormat = {
@@ -273,20 +303,28 @@ export const useStore = defineStore("main", {
           gridColor: document.gridColor,
           gridType: document.gridType,
           pages: document.pages.map((p) => ({
-            shapes: p.shapes.map((s) => ({
-              points: s.points.map((point) => ({
-                x: point.x,
-                y: point.y,
-                pressure: point.pressure,
-              })),
-              penThickness: s.penThickness,
-              penColor: s.penColor,
-            })),
-            images: p.images.map((i) => ({
-              base64ImageData: i.base64ImageData,
-              position: i.position,
-              size: i.size,
-            })),
+            shapes: p.shapes.map((s) => {
+              if (s.variant === "Line") {
+                return {
+                  variant: "Line",
+                  points: s.points.map((point) => ({
+                    x: point.x,
+                    y: point.y,
+                    pressure: point.pressure,
+                  })),
+                  penThickness: s.penThickness,
+                  penColor: s.penColor,
+                };
+              }
+              else {
+                return {
+                  variant: "Image",
+                  base64ImageData: s.base64ImageData,
+                  position: s.position,
+                  size: s.size,
+                };
+              }
+            }),
           })),
           pageWidthMm: document.size_mm.x,
           pageHeightMm: document.size_mm.y,
@@ -330,7 +368,7 @@ export const useStore = defineStore("main", {
         offset: DEFAULT_DOCUMENT_OFFSET,
         pageColor: DEFAULT_PAGE_COLOR,
         pages: [{
-          pageIndex: 0, previewShape: undefined, shapes: [], images: [],
+          pageIndex: 0, previewLine: undefined, shapes: [],
         }],
         zoom_px_per_mm: DEFAULT_ZOOM_PX_PER_MM,
         size_mm: DEFAULT_PAGE_SIZE,
@@ -391,17 +429,20 @@ export const useStore = defineStore("main", {
         pdfPage.moveTo(0, pdfPage.getHeight());
 
         for (const shape of page.shapes) {
-          const stroke = this.getPath(
-            shape.penThickness,
-            shape.points,
-            "accurate",
-          );
-          const d = getSvgPathFromStroke(stroke);
-          const { r, g, b, a } = this.parseColor(shape.penColor);
-          pdfPage.drawSvgPath(d, {
-            color: rgb(r / 255, g / 255, b / 255),
-            opacity: a
-          });
+          if (shape.variant === "Line") {
+            const stroke = this.getPath(
+              shape.penThickness,
+              shape.points,
+              "accurate",
+            );
+            const d = getSvgPathFromStroke(stroke);
+            const { r, g, b, a } = this.parseColor(shape.penColor);
+            pdfPage.drawSvgPath(d, {
+              color: rgb(r / 255, g / 255, b / 255),
+              opacity: a
+            });
+          }
+          else { }
         }
       }
 
@@ -423,20 +464,6 @@ export const useStore = defineStore("main", {
       const writable = await handle.createWritable();
       await writable.write(pdfBytes.slice(0));
       await writable.close();
-    },
-    async drawGridCanvas(
-      ctx: CanvasRenderingContext2D,
-      doc: Document,
-    ) {
-      ctx.lineWidth = this.gridLineThicknessMm * doc.zoom_px_per_mm;
-      ctx.lineCap = "butt";
-      ctx.strokeStyle = doc.gridColor;
-      for (let y = 0; y < doc.size_mm.y; y += this.gridLineDistanceMm) {
-        ctx.beginPath();
-        ctx.moveTo(0, y * doc.zoom_px_per_mm);
-        ctx.lineTo(getDocumentSizePx(doc).x, y * doc.zoom_px_per_mm);
-        ctx.stroke();
-      }
     },
     parseColor(colorStr: string) {
       colorStr = colorStr.trim();
@@ -506,6 +533,26 @@ export const useStore = defineStore("main", {
         img.onload = () => resolve(img)
         img.onerror = reject
       })
+    },
+    pxToMm<T extends number | Vec2>(px: T): T {
+      assert(this.currentlyOpenDocument);
+      if (px instanceof Vec2) {
+        return px.div(this.currentlyOpenDocument.zoom_px_per_mm) as T;
+      }
+      else if (typeof px === "number") {
+        return px / this.currentlyOpenDocument.zoom_px_per_mm as T;
+      }
+      throw new Error();
+    },
+    mmToPx<T extends number | Vec2>(mm: T): T {
+      assert(this.currentlyOpenDocument);
+      if (mm instanceof Vec2) {
+        return mm.mul(this.currentlyOpenDocument.zoom_px_per_mm) as T;
+      }
+      else if (typeof mm === "number") {
+        return mm * this.currentlyOpenDocument.zoom_px_per_mm as T;
+      }
+      throw new Error();
     }
   },
 });

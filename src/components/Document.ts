@@ -15,29 +15,32 @@ export type BBox = {
   bottom: number;
 };
 
-export type Shape = {
+export type LineShape = {
+  variant: "Line";
   points: Point[];
-  eraseBBox?: BBox;
-  lagCompensation?: boolean;
+  bbox: BBox;
   penThickness: number;
   penColor: string;
 };
 
 export type ImageShape = {
+  variant: "Image";
   position: {
     x: number;
     y: number;
   };
+  bbox: BBox;
   base64ImageData: string;
   image: HTMLImageElement;
   size: Vec2;
 };
 
+export type Shape = ImageShape | LineShape;
+
 export type Page = {
-  previewShape?: Shape;
+  previewLine?: LineShape;
   pageIndex: number;
   shapes: Shape[];
-  images: ImageShape[];
 }
 
 export function getCtx(canvas: HTMLCanvasElement | undefined) {

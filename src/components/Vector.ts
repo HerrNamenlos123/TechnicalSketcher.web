@@ -2,9 +2,15 @@ export class Vec2 {
   x: number;
   y: number;
 
-  constructor(x?: number, y?: number) {
-    this.x = x ?? 0;
-    this.y = y ?? 0;
+  constructor(x?: number | Vec2, y?: number) {
+    if (x && x instanceof Vec2) {
+      this.x = x.x;
+      this.y = x.y;
+    }
+    else {
+      this.x = x ?? 0;
+      this.y = y ?? 0;
+    }
   }
 
   add(other: Vec2): Vec2 {

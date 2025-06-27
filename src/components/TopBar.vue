@@ -7,15 +7,15 @@ const store = useStore();
 const next = () => {
   if (!store.currentlyOpenDocument) return;
   store.currentlyOpenDocument.currentPageIndex++;
-  store.forceRender = true;
-  store.flushCanvas = true;
+  store.triggerRender = true;
+  store.deepRender = true;
 };
 
 const prev = () => {
   if (!store.currentlyOpenDocument) return;
   store.currentlyOpenDocument.currentPageIndex--;
-  store.forceRender = true;
-  store.flushCanvas = true;
+  store.triggerRender = true;
+  store.deepRender = true;
 };
 </script>
 

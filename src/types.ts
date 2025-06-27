@@ -38,12 +38,20 @@ export type TskFileFormat = {
     gridColor: string;
     gridType: "lines" | "dots";
     pages: {
-      shapes: {
+      shapes: ({
+        variant: "Line";
         points: Point[];
         penColor: string;
         penThickness: number;
-      }[];
-      images: ImageShapeFileFormat[];
+      } | {
+        variant: "Image",
+        position: {
+          x: number;
+          y: number;
+        };
+        base64ImageData: string;
+        size: Vec2;
+      })[];
     }[];
     pageWidthMm: number;
     pageHeightMm: number;

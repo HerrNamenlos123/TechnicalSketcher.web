@@ -54,13 +54,13 @@ const exportDoc = async (entry: FSFileEntry) => {
 const setPageWidth = (x: number) => {
   if (!store.currentlyOpenDocument) return;
   store.currentlyOpenDocument.size_mm.x = x;
-  store.forceRender = true;
+  store.triggerRender = true;
 };
 
 const setPageHeight = (y: number) => {
   if (!store.currentlyOpenDocument) return;
   store.currentlyOpenDocument.size_mm.y = y;
-  store.forceRender = true;
+  store.triggerRender = true;
 };
 </script>
 
@@ -134,8 +134,8 @@ const setPageHeight = (y: number) => {
           v-model:pure-color="store.currentlyOpenDocument.pageColor"
           @pure-color-change="
             () => {
-              store.forceRender = true;
-              store.flushCanvas = true;
+              store.triggerRender = true;
+              store.deepRender = true;
             }
           "
         />
@@ -149,8 +149,8 @@ const setPageHeight = (y: number) => {
           v-model:pure-color="store.currentlyOpenDocument.gridColor"
           @pure-color-change="
             () => {
-              store.forceRender = true;
-              store.flushCanvas = true;
+              store.triggerRender = true;
+              store.deepRender = true;
             }
           "
         />
