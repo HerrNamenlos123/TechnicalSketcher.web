@@ -403,6 +403,23 @@ export const useStore = defineStore("main", {
       const scaledResult = result.map((p) => [p[0] / this.perfectFreehandAccuracyScaling, p[1] / this.perfectFreehandAccuracyScaling]);
       return scaledResult;
     },
+    async getImageBytesFromElement(img: HTMLImageElement): Promise<Uint8Array> {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+
+      return new Promise(resolve => {
+        canvas.toBlob(blob => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            resolve(new Uint8Array(reader.result as ArrayBuffer));
+          };
+          reader.readAsArrayBuffer(blob!);
+        }, 'image/png');
+      });
+    },
     async exportDocumentAsPdf(doc: Document) {
       function getSvgPathFromStroke(points: number[][]): string {
         if (!points.length) return "";
@@ -427,8 +444,22 @@ export const useStore = defineStore("main", {
       }
 
       const pdfDoc = await PDFDocument.create();
+      assert(this.paperTexture);
+      const imgBytes = await this.getImageBytesFromElement(this.paperTexture);
+      const pdfImage = await pdfDoc.embedPng(imgBytes);
+
       for (const page of doc.pages) {
         const pdfPage = pdfDoc.addPage([doc.size_mm.x, doc.size_mm.y]);
+
+        if (this.includePaperTextureInPdf) {
+          pdfPage.drawImage(pdfImage, {
+            x: 0,
+            y: pdfPage.getHeight(),
+            width: pdfPage.getWidth(),
+            height: -pdfPage.getHeight(),
+          })
+        }
+
         this.drawGridPdf(pdfPage, doc);
         pdfPage.moveTo(0, pdfPage.getHeight());
 
