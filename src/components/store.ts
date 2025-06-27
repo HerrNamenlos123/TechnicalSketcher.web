@@ -89,6 +89,7 @@ export const useStore = defineStore("main", {
     gridLineThicknessMm: 0.2,
     gridLineDistanceMm: 10,
     paperTexture: undefined as HTMLImageElement | undefined,
+    includePaperTextureInPdf: true,
     triggerRender: false,
     forceDeepRender: false,
     forceShallowRender: false,
@@ -445,7 +446,17 @@ export const useStore = defineStore("main", {
               opacity: a
             });
           }
-          else { }
+          else {
+            const base64 = shape.base64ImageData.replace(/^data:image\/\w+;base64,/, '');
+            const byteArray = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            const image = await pdfDoc.embedPng(byteArray);
+            pdfPage.drawImage(image, {
+              x: shape.position.x,
+              y: pdfPage.getHeight() - shape.size.y - shape.position.y,
+              width: shape.size.x,
+              height: shape.size.y,
+            })
+          }
         }
       }
 
