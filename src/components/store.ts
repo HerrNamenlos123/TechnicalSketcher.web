@@ -7,6 +7,7 @@ import getStroke from "perfect-freehand";
 // import PaperTexture from "@/assets/paper-texture.jpg";
 // import PaperTextureWhite from "@/assets/paper-texture-white.avif";
 import PaperTextureTiling from "@/assets/paper-texture-tiling.jpg";
+import { nextTick } from "vue";
 
 export const RESIZE_HANDLE_SIZE = 8;
 
@@ -289,6 +290,8 @@ export const useStore = defineStore("main", {
           newDoc?.fileHandle?.filename
         ) {
           this.openDocuments[i] = newDoc;
+          this.currentlyOpenDocument = undefined;
+          await nextTick();
           this.currentlyOpenDocument = newDoc;
           this.forceDeepRender = true;
           this.triggerRender = true;
@@ -298,6 +301,8 @@ export const useStore = defineStore("main", {
 
       // No match
       this.openDocuments.push(newDoc);
+      this.currentlyOpenDocument = undefined;
+      await nextTick();
       this.currentlyOpenDocument = newDoc;
       this.forceDeepRender = true;
       this.triggerRender = true;
