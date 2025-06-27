@@ -405,7 +405,7 @@ export const useStore = defineStore("main", {
       }));
       const result = getStroke(scaledPoints, {
         size: penSize * this.perfectFreehandAccuracyScaling,
-        smoothing: 1,
+        smoothing: 0,
         streamline: mode === "fast" ? 0.6 : 0.6,
         thinning: 0.1,
       });

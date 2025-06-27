@@ -39,7 +39,7 @@ const colors = [
   "#6B7280", // Slate Gray
 ];
 
-const penThicknesses = [0.2, 0.3, 0.4, 0.5, 0.7];
+const penThicknesses = [0.1, 0.3, 0.5, 0.7, 0.9];
 
 const props = defineProps<{
   maxZoom: number;
@@ -486,6 +486,7 @@ class Controls {
 
         if (deleteShape) {
           page.value.shapes = page.value.shapes.filter((s) => s !== shape);
+          store.saveDocument(currentDocument.value);
           return;
         }
       }
@@ -754,6 +755,7 @@ const keydown = (e: KeyboardEvent) => {
     movedShapes.value = [];
   }
   store.forceDeepRender = true;
+  store.saveDocument(currentDocument.value);
   render();
 };
 
