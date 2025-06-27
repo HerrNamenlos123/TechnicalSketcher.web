@@ -1,5 +1,5 @@
 import { getDocumentSizePx, type BBox, type Document, type ImageShape, type LineShape, type Shape } from "./Document";
-import { assert, useStore } from "./store";
+import { assert, RESIZE_HANDLE_SIZE, useStore } from "./store";
 import { Vec2 } from "./Vector";
 
 export class RenderLayer {
@@ -96,6 +96,15 @@ export class RenderLayer {
         const posPx = posMm.mul(this.doc.zoom_px_per_mm);
         const sizePx = sizeMm.mul(this.doc.zoom_px_per_mm);
         this.ctx.strokeRect(posPx.x, posPx.y, sizePx.x, sizePx.y);
+    }
+
+    drawResizeHandle(pos: Vec2) {
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeStyle = "black";
+        this.ctx.fillStyle = "white";
+        const posPx = pos.mul(this.doc.zoom_px_per_mm);
+        this.ctx.fillRect(posPx.x - RESIZE_HANDLE_SIZE / 2, posPx.y - RESIZE_HANDLE_SIZE / 2, RESIZE_HANDLE_SIZE, RESIZE_HANDLE_SIZE);
+        this.ctx.strokeRect(posPx.x - RESIZE_HANDLE_SIZE / 2, posPx.y - RESIZE_HANDLE_SIZE / 2, RESIZE_HANDLE_SIZE, RESIZE_HANDLE_SIZE);
     }
 
     drawImageCovering(

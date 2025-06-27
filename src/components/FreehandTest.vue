@@ -13,6 +13,7 @@ import {
   combineBBox,
   isPointInBBox,
   loadImageAsync,
+  RESIZE_HANDLE_SIZE,
   updateShapeBBox,
   useStore,
 } from "./store";
@@ -49,6 +50,7 @@ const mainCanvas = ref<HTMLCanvasElement>();
 const renderer = ref<undefined | Renderer>();
 const viewport = ref<HTMLDivElement>();
 const contextPopupPosPx = ref<undefined | Vec2>();
+const cursorResize = ref(false);
 
 const page = computed(
   () => currentDocument.value.pages[currentDocument.value.currentPageIndex],
@@ -270,6 +272,25 @@ const moveShape = (shape: Shape, delta: Vec2) => {
   shape.bbox.bottom += delta.y;
 };
 
+const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
+  if (shape.variant === "Image") {
+    const newPos = origin.add(
+      new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio),
+    );
+    shape.position.x = newPos.x;
+    shape.position.y = newPos.y;
+    shape.size.x *= ratio;
+    shape.size.y *= ratio;
+  } else {
+    for (const p of shape.points) {
+      const newPos = origin.add(new Vec2(p.x, p.y).sub(origin).mul(ratio));
+      p.x = newPos.x;
+      p.y = newPos.y;
+    }
+  }
+  updateShapeBBox(shape);
+};
+
 class Controls {
   eraserButton = false;
   stylusButton = false;
@@ -282,6 +303,9 @@ class Controls {
   deltaMm = new Vec2();
 
   isMovingShapes = false;
+  resizeOrigin = new Vec2();
+  resizeLastOriginDistance = 0;
+  isResizing = false;
   startedSelectionWithStylusButton = false;
 
   constructor() {}
@@ -289,6 +313,20 @@ class Controls {
   onPenDown() {
     assert(this.e);
 
+    // Start resizing
+    if (this.isCursorInResizeHandle()) {
+      this.isResizing = true;
+      const bbox = this.getCombinedSelectionBBox();
+      this.resizeOrigin = new Vec2(bbox.left, bbox.top);
+      this.resizeLastOriginDistance = this.cursorPosMm
+        .sub(this.resizeOrigin)
+        .mag();
+      movedShapes.value = [...selectedShapes.value];
+      selectionPathPx.value = undefined;
+      return;
+    }
+
+    // Start moving
     if (selectedShapes.value.length > 0) {
       if (isCursorInAnySelectedBBox(this.cursorPosMm)) {
         this.isMovingShapes = true;
@@ -339,8 +377,54 @@ class Controls {
     };
   }
 
+  getCombinedSelectionBBox() {
+    let combinedBBox = selectedShapes.value[0].bbox;
+    for (const shape of selectedShapes.value) {
+      combinedBBox = combineBBox(combinedBBox, shape.bbox);
+    }
+    return combinedBBox;
+  }
+
+  isCursorInResizeHandle() {
+    if (selectedShapes.value.length === 0) {
+      return undefined;
+    }
+    const combinedBBox = this.getCombinedSelectionBBox();
+    const handlePosMm = new Vec2(combinedBBox.right, combinedBBox.bottom);
+    const handlePosPx = store.mmToPx(handlePosMm);
+    const dist = handlePosPx.sub(this.cursorPosPx).mag();
+    return dist <= RESIZE_HANDLE_SIZE;
+  }
+
+  updateResizeCursor() {
+    if (this.isCursorInResizeHandle()) {
+      cursorResize.value = true;
+    } else {
+      cursorResize.value = false;
+    }
+  }
+
+  onPenHover() {
+    this.updateResizeCursor();
+  }
+
   onPenDrag() {
     assert(this.e);
+
+    if (this.isResizing) {
+      const distToOrigin = this.cursorPosMm.sub(this.resizeOrigin).mag();
+      const ratio = distToOrigin / this.resizeLastOriginDistance;
+      for (const shape of selectedShapes.value) {
+        resizeShape(shape, this.resizeOrigin, ratio);
+        if (this.e.ctrlKey || this.e.shiftKey) {
+          if (shape.variant === "Line") {
+            shape.penThickness *= ratio;
+          }
+        }
+      }
+      this.resizeLastOriginDistance = distToOrigin;
+      return;
+    }
 
     if (this.isMovingShapes) {
       for (const shape of selectedShapes.value) {
@@ -422,6 +506,10 @@ class Controls {
 
     eraserPosPx.value = undefined;
     this.isMovingShapes = false;
+
+    if (this.isResizing) {
+      this.isResizing = false;
+    }
 
     if (selectionPathPx.value) {
       // Releasing while using selection
@@ -585,6 +673,8 @@ class Controls {
     this.processEventImpl();
     if (this.penDown || this.eraserButton || this.stylusButton) {
       this.onPenDrag();
+    } else {
+      this.onPenHover();
     }
   }
 
@@ -739,6 +829,9 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
   <div
     ref="viewport"
     class="relative w-full h-full overflow-hidden bg-white"
+    :class="{
+      'cursor-se-resize': cursorResize,
+    }"
     @contextmenu.prevent
     @keydown="keydown"
     @pointercancel="pointerUpHandler($event)"

@@ -1,12 +1,14 @@
 import type { FSDirEntry, FSFileEntry, TskFileFormat, VaultFS } from "@/types";
 import { defineStore } from "pinia";
-import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, getDocumentSizePx, DEFAULT_DOCUMENT_OFFSET, type BBox, type Shape, type ImageShape, type LineShape } from "./Document";
+import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, DEFAULT_DOCUMENT_OFFSET, type BBox, type Shape, type ImageShape, type LineShape } from "./Document";
 import { Vec2 } from "./Vector";
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import getStroke from "perfect-freehand";
 // import PaperTexture from "@/assets/paper-texture.jpg";
 // import PaperTextureWhite from "@/assets/paper-texture-white.avif";
 import PaperTextureTiling from "@/assets/paper-texture-tiling.jpg";
+
+export const RESIZE_HANDLE_SIZE = 8;
 
 export function assert<T>(
   value: T | null | undefined,

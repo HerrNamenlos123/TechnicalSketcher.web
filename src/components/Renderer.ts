@@ -89,13 +89,14 @@ export class Renderer {
         }
 
         if (this.selectedShapes.length > 0) {
-
             let combinedBbox = this.selectedShapes[0].bbox;
             for (const shape of this.selectedShapes) {
                 combinedBbox = combineBBox(combinedBbox, shape.bbox);
                 this.mainRenderer.drawSelectionBbox(shape.bbox);
             }
             this.mainRenderer.drawSelectionBbox(combinedBbox);
+
+            this.mainRenderer.drawResizeHandle(new Vec2(combinedBbox.right, combinedBbox.bottom));
         }
     }
 
