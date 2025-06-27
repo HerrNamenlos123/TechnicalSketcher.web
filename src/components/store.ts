@@ -290,6 +290,8 @@ export const useStore = defineStore("main", {
         ) {
           this.openDocuments[i] = newDoc;
           this.currentlyOpenDocument = newDoc;
+          this.forceDeepRender = true;
+          this.triggerRender = true;
           return;
         }
       }
@@ -297,6 +299,8 @@ export const useStore = defineStore("main", {
       // No match
       this.openDocuments.push(newDoc);
       this.currentlyOpenDocument = newDoc;
+      this.forceDeepRender = true;
+      this.triggerRender = true;
     },
     async saveDocument(document: Document) {
       const output: TskFileFormat = {
