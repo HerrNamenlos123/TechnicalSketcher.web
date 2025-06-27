@@ -25,8 +25,8 @@ export class Renderer {
     constructor(public doc: Document, mainCanvasElement: HTMLCanvasElement) {
         const store = useStore();
         const size = store.pxToMm(this.pageSize);
-        this.mainRenderer = new RenderLayer(size, doc, mainCanvasElement);
-        this.preRenderer = new RenderLayer(size, doc);
+        this.mainRenderer = new RenderLayer(size, doc, true, mainCanvasElement);
+        this.preRenderer = new RenderLayer(size, doc, false);
     }
 
     async render() {

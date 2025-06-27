@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
 import {
+  getDocumentSizePx,
   type Document,
   type ImageShape,
   type LineShape,
@@ -856,6 +857,8 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
         borderBottomRightRadius:
           (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 +
           'px',
+        width: getDocumentSizePx(currentDocument).x + 'px',
+        height: getDocumentSizePx(currentDocument).y + 'px',
       }"
     />
     <div

@@ -5,10 +5,11 @@ import { Vec2 } from "./Vector";
 export class RenderLayer {
     public canvas: HTMLCanvasElement;
 
-    constructor(size: Vec2, public doc: Document, canvasElement?: HTMLCanvasElement) {
+    constructor(size: Vec2, public doc: Document, public applyScale: boolean, canvasElement?: HTMLCanvasElement) {
+        const scale = window.devicePixelRatio;
         this.canvas = canvasElement || document.createElement("canvas");
-        this.canvas.width = size.x;
-        this.canvas.height = size.y;
+        this.canvas.width = size.x * scale;
+        this.canvas.height = size.y * scale;
     }
 
     get ctx() {
@@ -18,8 +19,9 @@ export class RenderLayer {
     }
 
     resizeAndClear(size: Vec2) {
-        this.canvas.width = size.x;
-        this.canvas.height = size.y;
+        const scale = window.devicePixelRatio;
+        this.canvas.width = size.x * scale;
+        this.canvas.height = size.y * scale;
         this.clear();
     }
 
@@ -45,6 +47,7 @@ export class RenderLayer {
 
     drawImageShape(shape: ImageShape) {
         this.ctx.save();
+        this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
         this.ctx.imageSmoothingEnabled = true;
         this.ctx.imageSmoothingQuality = "high"; // optional: "low", "medium", "high"
         this.ctx.beginPath();
@@ -68,8 +71,7 @@ export class RenderLayer {
         const scalingFactor = this.doc.zoom_px_per_mm;
 
         this.ctx.save();
-        this.ctx.imageSmoothingEnabled = true;
-        this.ctx.imageSmoothingQuality = "high"; // optional: "low", "medium", "high"
+        this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
         this.ctx.beginPath();
         this.ctx.moveTo(outline[0][0] * scalingFactor, outline[0][1] * scalingFactor);
 
@@ -89,6 +91,8 @@ export class RenderLayer {
     }
 
     drawSelectionBbox(bbox: BBox) {
+        this.ctx.save();
+        this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
         this.ctx.lineWidth = 1;
         this.ctx.strokeStyle = "#e77b00";
         const posMm = new Vec2(bbox.left, bbox.top);
@@ -96,15 +100,19 @@ export class RenderLayer {
         const posPx = posMm.mul(this.doc.zoom_px_per_mm);
         const sizePx = sizeMm.mul(this.doc.zoom_px_per_mm);
         this.ctx.strokeRect(posPx.x, posPx.y, sizePx.x, sizePx.y);
+        this.ctx.restore();
     }
 
     drawResizeHandle(pos: Vec2) {
+        this.ctx.save();
+        this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
         this.ctx.lineWidth = 1;
         this.ctx.strokeStyle = "black";
         this.ctx.fillStyle = "white";
         const posPx = pos.mul(this.doc.zoom_px_per_mm);
         this.ctx.fillRect(posPx.x - RESIZE_HANDLE_SIZE / 2, posPx.y - RESIZE_HANDLE_SIZE / 2, RESIZE_HANDLE_SIZE, RESIZE_HANDLE_SIZE);
         this.ctx.strokeRect(posPx.x - RESIZE_HANDLE_SIZE / 2, posPx.y - RESIZE_HANDLE_SIZE / 2, RESIZE_HANDLE_SIZE, RESIZE_HANDLE_SIZE);
+        this.ctx.restore();
     }
 
     drawImageCovering(
@@ -139,6 +147,8 @@ export class RenderLayer {
     }
     drawGrid() {
         const store = useStore();
+        this.ctx.save();
+        this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
         this.ctx.lineWidth = store.mmToPx(store.gridLineThicknessMm);
         this.ctx.lineCap = "butt";
         this.ctx.strokeStyle = this.doc.gridColor;
@@ -148,11 +158,13 @@ export class RenderLayer {
             this.ctx.lineTo(getDocumentSizePx(this.doc).x, store.mmToPx(y));
             this.ctx.stroke();
         }
+        this.ctx.restore();
     }
     drawDashedPolygon(points: Vec2[]) {
         if (points.length < 2) return;
 
         this.ctx.save();
+        this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
         this.ctx.fillStyle = "rgba(0, 128, 255, 0.1)";
         this.ctx.strokeStyle = "black";
         this.ctx.lineWidth = 1;
@@ -171,6 +183,8 @@ export class RenderLayer {
         this.ctx.restore();
     }
     drawCircle(center: Vec2, radius: number) {
+        this.ctx.save();
+        this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
         this.ctx.beginPath();
         this.ctx.arc(
             center.x,
@@ -184,6 +198,7 @@ export class RenderLayer {
         this.ctx.lineWidth = 1;
         this.ctx.strokeStyle = "black";
         this.ctx.stroke();
+        this.ctx.restore();
     }
 
 }
