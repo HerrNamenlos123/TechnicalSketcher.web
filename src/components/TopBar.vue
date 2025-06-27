@@ -8,14 +8,14 @@ const next = () => {
   if (!store.currentlyOpenDocument) return;
   store.currentlyOpenDocument.currentPageIndex++;
   store.triggerRender = true;
-  store.deepRender = true;
+  store.forceDeepRender = true;
 };
 
 const prev = () => {
   if (!store.currentlyOpenDocument) return;
   store.currentlyOpenDocument.currentPageIndex--;
   store.triggerRender = true;
-  store.deepRender = true;
+  store.forceDeepRender = true;
 };
 </script>
 

@@ -135,7 +135,7 @@ const setPageHeight = (y: number) => {
           @pure-color-change="
             () => {
               store.triggerRender = true;
-              store.deepRender = true;
+              store.forceDeepRender = true;
             }
           "
         />
@@ -150,7 +150,7 @@ const setPageHeight = (y: number) => {
           @pure-color-change="
             () => {
               store.triggerRender = true;
-              store.deepRender = true;
+              store.forceDeepRender = true;
             }
           "
         />

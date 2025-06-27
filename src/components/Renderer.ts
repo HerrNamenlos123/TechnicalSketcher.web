@@ -1,7 +1,7 @@
 import { isDeeplyEqual } from "@/deep-equal";
 import { getDocumentSizePx, type Document, type Shape } from "./Document";
 import { RenderLayer } from "./RenderLayer";
-import { assert, useStore } from "./store";
+import { assert, combineBBox, useStore } from "./store";
 import { Vec2 } from "./Vector";
 
 export class Renderer {
@@ -10,11 +10,13 @@ export class Renderer {
 
     staticShapes: Shape[] = [];
     dynamicShapes: Shape[] = [];
+    selectedShapes: Shape[] = [];
     selectionPathPx: undefined | Vec2[] = undefined;
     eraserPosPx: Vec2 | undefined = undefined;
 
     private prevStaticShapes: Shape[] = [];
     private prevDynamicShapes: Shape[] = [];
+    private prevSelectedShapes: Shape[] = [];
     private prevSelectionPath: undefined | Vec2[] = undefined;
     private prevEraserPos: Vec2 | undefined = undefined;
     private prevPageSizeMm: Vec2 = new Vec2();
@@ -33,26 +35,28 @@ export class Renderer {
         const staticChanged = !isDeeplyEqual(this.staticShapes, this.prevStaticShapes);
         const dynamicChanged = !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes);
 
+        const selectedShapesChanged = !isDeeplyEqual(this.selectedShapes, this.prevSelectedShapes);
         const selectionChanged = !isDeeplyEqual(this.selectionPathPx, this.prevSelectionPath);
         const eraserChanged = !isDeeplyEqual(this.eraserPosPx, this.prevEraserPos);
         const forceShallowRerender = !isDeeplyEqual(this.doc.size_mm, this.prevPageSizeMm) || this.prevPageZoom !== this.doc.zoom_px_per_mm;
 
-        if (staticChanged || store.deepRender) {
+        if (staticChanged || store.forceDeepRender) {
             await this.preRender();
-            console.log("Static render", staticChanged)
+            // console.log("Static render", staticChanged)
         }
-        if (dynamicChanged || selectionChanged || eraserChanged || forceShallowRerender || store.deepRender) {
+        if (dynamicChanged || selectionChanged || eraserChanged || forceShallowRerender || store.forceDeepRender || selectedShapesChanged || store.forceShallowRender) {
             await this.shallowRender();
-            console.log("dynamic render")
+            // console.log("dynamic render", dynamicChanged, selectionChanged, eraserChanged, forceShallowRerender, store.forceDeepRender, selectedShapesChanged)
         }
         this.prevStaticShapes = [...this.staticShapes];
         this.prevDynamicShapes = [...this.dynamicShapes];
+        this.prevSelectedShapes = [...this.selectedShapes];
         this.prevPageSizeMm = new Vec2(this.doc.size_mm);
         this.prevEraserPos = this.eraserPosPx && new Vec2(this.eraserPosPx);
         this.prevSelectionPath = this.selectionPathPx && [...this.selectionPathPx];
         this.prevPageZoom = this.doc.zoom_px_per_mm;
         store.triggerRender = false;
-        store.deepRender = false;
+        store.forceDeepRender = false;
     }
 
     private async preRender() {
@@ -76,35 +80,23 @@ export class Renderer {
             this.mainRenderer.drawDashedPolygon(this.selectionPathPx);
         }
 
-        if (this.page.previewLine) {
-            this.mainRenderer.drawShape(this.page.previewLine);
+        for (const shape of this.dynamicShapes) {
+            this.mainRenderer.drawShape(shape);
         }
 
         if (this.eraserPosPx) {
             this.mainRenderer.drawCircle(this.eraserPosPx, store.eraserSizePx / 2);
         }
 
-        // for (const shape of selectedLineShapes.value) {
-        //     const bbox = buildShapeBBox(shape);
-        //     viewCtx.lineWidth = 1;
-        //     viewCtx.strokeStyle = "#e77b00";
-        //     const posMm = new Vec2(bbox.left, bbox.top);
-        //     const sizeMm = new Vec2(bbox.right - bbox.left, bbox.bottom - bbox.top);
-        //     const posPx = posMm.mul(currentDocument.value.zoom_px_per_mm);
-        //     const sizePx = sizeMm.mul(currentDocument.value.zoom_px_per_mm);
-        //     viewCtx.strokeRect(posPx.x, posPx.y, sizePx.x, sizePx.y);
-        // }
+        if (this.selectedShapes.length > 0) {
 
-        // for (const image of selectedImageShapes.value) {
-        //     viewCtx.lineWidth = 1;
-        //     viewCtx.strokeStyle = "#e77b00";
-        //     viewCtx.strokeRect(
-        //         image.position.x * currentDocument.value.zoom_px_per_mm,
-        //         image.position.y * currentDocument.value.zoom_px_per_mm,
-        //         image.size.x * currentDocument.value.zoom_px_per_mm,
-        //         image.size.y * currentDocument.value.zoom_px_per_mm,
-        //     );
-        // }
+            let combinedBbox = this.selectedShapes[0].bbox;
+            for (const shape of this.selectedShapes) {
+                combinedBbox = combineBBox(combinedBbox, shape.bbox);
+                this.mainRenderer.drawSelectionBbox(shape.bbox);
+            }
+            this.mainRenderer.drawSelectionBbox(combinedBbox);
+        }
     }
 
     get page() {

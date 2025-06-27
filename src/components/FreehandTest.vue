@@ -2,8 +2,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
 import {
-  getCtx,
-  type BBox,
   type Document,
   type ImageShape,
   type LineShape,
@@ -19,12 +17,6 @@ import {
   useStore,
 } from "./store";
 import { Renderer } from "./Renderer";
-
-enum Action {
-  Down,
-  Move,
-  Up,
-}
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
@@ -95,7 +87,7 @@ const handleWheel = (e: WheelEvent) => {
       new Vec2(-e.deltaX, -e.deltaY),
     );
   }
-  renderer.value.forceDeepRerender = true;
+  store.forceDeepRender = true;
   render();
 };
 
@@ -103,7 +95,6 @@ const pointerEvents = ref<PointerEvent[]>([]);
 const isZooming = ref(false);
 const lastZoomFingerDistance = ref(0);
 const lastZoomCenter = ref(new Vec2());
-const contextClickPositionPx = ref<Vec2 | undefined>(undefined);
 const selectionPathPx = ref<undefined | Vec2[]>();
 const eraserPosPx = ref<undefined | Vec2>();
 
@@ -161,7 +152,7 @@ const updateZoomingPointers = () => {
     lastZoomCenter.value = center;
   } else {
     isZooming.value = false;
-    renderer.value.forceDeepRerender = true;
+    store.forceDeepRender = true;
   }
 };
 
@@ -217,36 +208,40 @@ const selectShapeUnderCursor = (page: Page, cursorPosMm: Vec2) => {
   }
 };
 
-const dragCursorStartsMove = (page: Page, cursorPosMm: Vec2) => {
-  let combinedBBox = page.shapes[0].bbox;
+const isCursorInAnySelectedBBox = (cursorPosMm: Vec2) => {
+  if (selectedShapes.value.length === 0) return false;
+  let combinedBBox = selectedShapes.value[0].bbox;
 
-  for (const shape of page.shapes) {
-    if (!selectedShapes.value.includes(shape)) continue;
+  for (const shape of selectedShapes.value) {
     combinedBBox = combineBBox(combinedBBox, shape.bbox);
   }
 
   return isPointInBBox(combinedBBox, cursorPosMm);
 };
 
-const mouseEvent = (e: PointerEvent, action: Action) => {
-  if (action === Action.Down) {
-  } else if (action === Action.Move) {
-  } else if (action === Action.Up) {
-  }
-};
-
 const render = () => {
   if (!renderer.value) return;
+  renderer.value.dynamicShapes = [];
   renderer.value.staticShapes = [];
+  renderer.value.selectedShapes = [];
   renderer.value.selectionPathPx = selectionPathPx.value;
   renderer.value.eraserPosPx = eraserPosPx.value;
 
   for (const shape of page.value.shapes) {
+    if (selectedShapes.value.includes(shape)) {
+      renderer.value.selectedShapes.push(shape);
+    }
+    if (movedShapes.value.includes(shape)) continue;
     renderer.value.staticShapes.push(shape);
   }
 
   if (page.value.previewLine) {
+    store.forceShallowRender = true;
     renderer.value.dynamicShapes.push(page.value.previewLine);
+  }
+
+  for (const shape of movedShapes.value) {
+    renderer.value.dynamicShapes.push(shape);
   }
 
   renderer.value.render();
@@ -275,99 +270,100 @@ const moveShape = (shape: Shape, delta: Vec2) => {
   shape.bbox.bottom += delta.y;
 };
 
-const penEvent = (e: PointerEvent, action: Action) => {
-  e.preventDefault();
-  if (!viewport.value || !mainCanvas.value || !renderer.value) return;
+class Controls {
+  eraserButton = false;
+  stylusButton = false;
+  penDown = false;
+  e?: PointerEvent;
 
-  const eraserButton = (e.buttons & 32) !== 0;
-  const stylusButton = (e.buttons & 2) !== 0;
-  const penDown = (e.buttons & 1) !== 0;
+  cursorPosPx = new Vec2();
+  cursorPosMm = new Vec2();
+  currentPage?: Page;
+  deltaMm = new Vec2();
 
-  const topLeft = new Vec2(
-    mainCanvas.value.getBoundingClientRect().left -
-      viewport.value.getBoundingClientRect().left,
-    mainCanvas.value.getBoundingClientRect().top -
-      viewport.value.getBoundingClientRect().top,
-  );
-  const cursorPosPx = new Vec2(e.offsetX, e.offsetY).sub(topLeft);
-  const cursorPosMm = cursorPosPx.div(currentDocument.value.zoom_px_per_mm);
+  isMovingShapes = false;
+  startedSelectionWithStylusButton = false;
 
-  const currentPage =
-    currentDocument.value.pages[currentDocument.value.currentPageIndex];
-  // const cursorOnPage =
-  //   cursorPosMm.x >= 0 &&
-  //   cursorPosMm.x <= currentDocument.value.size_mm.x &&
-  //   cursorPosMm.y >= 0 &&
-  //   cursorPosMm.y <= currentDocument.value.size_mm.y;
+  constructor() {}
 
-  if (action === Action.Down) {
-    if (explicitSelectionTool.value) {
-      if (!dragCursorStartsMove(currentPage, cursorPosMm)) {
+  onPenDown() {
+    assert(this.e);
+
+    if (selectedShapes.value.length > 0) {
+      if (isCursorInAnySelectedBBox(this.cursorPosMm)) {
+        this.isMovingShapes = true;
+        movedShapes.value = [...selectedShapes.value];
+        selectionPathPx.value = undefined;
+        return;
+      } else {
+        this.isMovingShapes = false;
         selectedShapes.value = [];
         movedShapes.value = [];
-      } else {
-        movedShapes.value = [];
-        for (const shape of selectedShapes.value) {
-          movedShapes.value.push(shape);
-        }
-        selectionPathPx.value = undefined;
       }
     }
 
-    if (stylusButton || explicitSelectionTool.value) {
-      if (selectedShapes.value.length === 0) {
-        contextClickPositionPx.value = cursorPosPx;
-        selectionPathPx.value = [];
-      }
-    } else if (eraserButton) {
-      currentPage.previewLine = undefined;
-      eraserPosPx.value = cursorPosMm.mul(currentDocument.value.zoom_px_per_mm);
-    } else {
-      currentPage.previewLine = {
-        variant: "Line",
-        bbox: {
-          left: cursorPosMm.x,
-          right: cursorPosMm.x,
-          bottom: cursorPosMm.y,
-          top: cursorPosMm.y,
+    if (this.stylusButton || explicitSelectionTool.value) {
+      selectedShapes.value = [];
+      movedShapes.value = [];
+      selectionPathPx.value = [this.cursorPosPx];
+      this.startedSelectionWithStylusButton = this.stylusButton;
+      return;
+    }
+
+    if (this.eraserButton) {
+      page.value.previewLine = undefined;
+      eraserPosPx.value = this.cursorPosMm.mul(
+        currentDocument.value.zoom_px_per_mm,
+      );
+      return;
+    }
+
+    // Start drawing
+    page.value.previewLine = {
+      variant: "Line",
+      bbox: {
+        left: this.cursorPosMm.x,
+        right: this.cursorPosMm.x,
+        bottom: this.cursorPosMm.y,
+        top: this.cursorPosMm.y,
+      },
+      points: [
+        {
+          x: this.cursorPosMm.x,
+          y: this.cursorPosMm.y,
+          pressure: 0.5,
         },
-        points: [
-          {
-            x: cursorPosMm.x,
-            y: cursorPosMm.y,
-            pressure: 0.5,
-          },
-        ],
-        penColor: store.penColor,
-        penThickness: store.penSizeMm,
-      };
-    }
-  } else if (action === Action.Move) {
-    const delta = new Vec2(e.movementX, e.movementY).div(
-      currentDocument.value.zoom_px_per_mm,
-    );
-    if (explicitSelectionTool.value) {
-      if (penDown) {
-        for (const shape of selectedShapes.value) {
-          moveShape(shape, delta);
-        }
+      ],
+      penColor: store.penColor,
+      penThickness: store.penSizeMm,
+    };
+  }
+
+  onPenDrag() {
+    assert(this.e);
+
+    if (this.isMovingShapes) {
+      for (const shape of selectedShapes.value) {
+        moveShape(shape, this.deltaMm);
       }
+      return;
     }
 
-    if (stylusButton || explicitSelectionTool.value) {
-      if (stylusButton || penDown) {
-        if (selectionPathPx.value) {
-          selectionPathPx.value.push(cursorPosPx);
-        }
-      }
-    } else if (eraserButton) {
-      for (const shape of currentPage.shapes) {
+    // Selecting
+    if (selectionPathPx.value) {
+      selectionPathPx.value.push(this.cursorPosPx);
+      return;
+    }
+
+    // Erasing
+    if (this.eraserButton) {
+      for (const shape of page.value.shapes) {
         const eraserSizeMm =
           store.eraserSizePx / currentDocument.value.zoom_px_per_mm;
-        eraserPosPx.value = cursorPosMm.mul(
+        eraserPosPx.value = this.cursorPosMm.mul(
           currentDocument.value.zoom_px_per_mm,
         );
-        const eraserPosMm = cursorPosMm;
+        const eraserPosMm = this.cursorPosMm;
 
         if (
           eraserPosMm.x + eraserSizeMm / 2 < shape.bbox.left ||
@@ -404,131 +400,202 @@ const penEvent = (e: PointerEvent, action: Action) => {
         }
 
         if (deleteShape) {
-          currentPage.shapes = currentPage.shapes.filter((s) => s !== shape);
+          page.value.shapes = page.value.shapes.filter((s) => s !== shape);
           return;
         }
       }
-    } else {
-      if (e.movementX === 0 && e.movementY === 0) return;
-      if (currentPage.previewLine) {
-        currentPage.previewLine.points.push({
-          x: cursorPosMm.x,
-          y: cursorPosMm.y,
-          pressure: 0.5,
-        });
-      }
     }
-  } else if (action === Action.Up) {
+
+    // Normal drawing
+    if (this.e.movementX === 0 && this.e.movementY === 0) return;
+    if (page.value.previewLine) {
+      page.value.previewLine.points.push({
+        x: this.cursorPosMm.x,
+        y: this.cursorPosMm.y,
+        pressure: 0.5,
+      });
+    }
+  }
+
+  onPenUp() {
+    assert(this.e);
+
     eraserPosPx.value = undefined;
-    if (contextClickPositionPx.value) {
+    this.isMovingShapes = false;
+
+    if (selectionPathPx.value) {
+      // Releasing while using selection
       if (
         selectionPathPerimeterLength.value <= CONTEXT_MENU_PERIMETER_LIMIT_PX
       ) {
-        if (explicitSelectionTool.value) {
-          selectShapeUnderCursor(currentPage, cursorPosMm);
+        // Has not moved while selecting
+        if (
+          explicitSelectionTool.value &&
+          !this.startedSelectionWithStylusButton
+        ) {
+          selectShapeUnderCursor(page.value, this.cursorPosMm);
         } else {
-          contextPopupPosPx.value = cursorPosPx;
+          contextPopupPosPx.value = this.cursorPosPx;
           nextTick(() => {
             nextTick(() => {
               contextPopupRef.value?.focus();
             });
           });
         }
-      } else {
-        if (selectionPathPx.value) {
-          movedShapes.value = [];
-          selectedShapes.value = [];
-          for (const shape of currentPage.shapes) {
-            let skip = false;
-            if (shape.variant === "Line") {
-              for (const point of shape.points) {
-                if (
-                  !pointInPolygon(
-                    new Vec2(point.x, point.y).mul(
-                      currentDocument.value.zoom_px_per_mm,
-                    ),
-                    selectionPathPx.value,
-                  )
-                ) {
-                  skip = true;
-                  break;
-                }
-              }
-            } else {
-              const topLeft = new Vec2(shape.position.x, shape.position.y);
-              const topRight = new Vec2(
-                shape.position.x + shape.size.x,
-                shape.position.y,
-              );
-              const bottomRight = new Vec2(
-                shape.position.x + shape.size.x,
-                shape.position.y + shape.size.y,
-              );
-              const bottomLeft = new Vec2(
-                shape.position.x,
-                shape.position.y + shape.size.y,
-              );
+        selectionPathPx.value = undefined;
+        return;
+      }
+
+      // Has selected and moved
+      if (selectionPathPx.value) {
+        for (const shape of page.value.shapes) {
+          let skip = false;
+          if (shape.variant === "Line") {
+            for (const point of shape.points) {
               if (
                 !pointInPolygon(
-                  topLeft.mul(currentDocument.value.zoom_px_per_mm),
-                  selectionPathPx.value,
-                ) ||
-                !pointInPolygon(
-                  topRight.mul(currentDocument.value.zoom_px_per_mm),
-                  selectionPathPx.value,
-                ) ||
-                !pointInPolygon(
-                  bottomRight.mul(currentDocument.value.zoom_px_per_mm),
-                  selectionPathPx.value,
-                ) ||
-                !pointInPolygon(
-                  bottomLeft.mul(currentDocument.value.zoom_px_per_mm),
+                  new Vec2(point.x, point.y).mul(
+                    currentDocument.value.zoom_px_per_mm,
+                  ),
                   selectionPathPx.value,
                 )
               ) {
                 skip = true;
+                break;
               }
             }
-            if (skip) continue;
-            selectedShapes.value.push(shape);
+          } else {
+            const topLeft = new Vec2(shape.position.x, shape.position.y);
+            const topRight = new Vec2(
+              shape.position.x + shape.size.x,
+              shape.position.y,
+            );
+            const bottomRight = new Vec2(
+              shape.position.x + shape.size.x,
+              shape.position.y + shape.size.y,
+            );
+            const bottomLeft = new Vec2(
+              shape.position.x,
+              shape.position.y + shape.size.y,
+            );
+            if (
+              !pointInPolygon(
+                topLeft.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              ) ||
+              !pointInPolygon(
+                topRight.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              ) ||
+              !pointInPolygon(
+                bottomRight.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              ) ||
+              !pointInPolygon(
+                bottomLeft.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              )
+            ) {
+              skip = true;
+            }
           }
+          if (skip) continue;
+          selectedShapes.value.push(shape);
         }
+        selectionPathPx.value = undefined;
+        return;
       }
-      movedShapes.value = [];
-      contextClickPositionPx.value = undefined;
-      selectionPathPx.value = undefined;
-    } else {
-      if (currentPage.previewLine) {
-        currentPage.previewLine.points.push({
-          x: cursorPosMm.x,
-          y: cursorPosMm.y,
-          pressure: 0.5,
+    }
+
+    if (page.value.previewLine) {
+      page.value.previewLine.points.push({
+        x: this.cursorPosMm.x,
+        y: this.cursorPosMm.y,
+        pressure: 0.5,
+      });
+
+      const line = {
+        variant: "Line",
+        bbox: { left: 0, right: 0, bottom: 0, top: 0 },
+        points: page.value.previewLine.points,
+        penColor: store.penColor,
+        penThickness: store.penSizeMm,
+      } satisfies LineShape;
+      updateShapeBBox(line);
+      page.value.shapes.push(line);
+      page.value.previewLine = undefined;
+
+      // drawShape(getCtx(store.currentPageCanvas), currentPage.previewLine);
+
+      if (page.value.pageIndex === currentDocument.value.pages.length - 1) {
+        currentDocument.value.pages.push({
+          pageIndex: currentDocument.value.pages.length,
+          shapes: [],
         });
-
-        // drawShape(getCtx(store.currentPageCanvas), currentPage.previewLine);
-        const line = {
-          variant: "Line",
-          bbox: { left: 0, right: 0, bottom: 0, top: 0 },
-          points: currentPage.previewLine.points,
-          penColor: store.penColor,
-          penThickness: store.penSizeMm,
-        } satisfies LineShape;
-        updateShapeBBox(line);
-        currentPage.shapes.push(line);
-        currentPage.previewLine = undefined;
-
-        if (currentPage.pageIndex === currentDocument.value.pages.length - 1) {
-          currentDocument.value.pages.push({
-            pageIndex: currentDocument.value.pages.length,
-            shapes: [],
-          });
-        }
       }
 
       store.saveDocument(currentDocument.value);
     }
   }
-};
+
+  useSelectionTool() {
+    explicitSelectionTool.value = true;
+  }
+
+  usePenTool(size: number) {
+    store.penSizeMm = size;
+    explicitSelectionTool.value = false;
+  }
+
+  private processEventImpl() {
+    assert(this.e);
+    this.e.preventDefault();
+    assert(viewport.value);
+    assert(mainCanvas.value);
+    assert(renderer.value);
+
+    this.eraserButton = (this.e.buttons & 32) !== 0;
+    this.stylusButton = (this.e.buttons & 2) !== 0;
+    this.penDown = (this.e.buttons & 1) !== 0;
+
+    const topLeft = new Vec2(
+      mainCanvas.value.getBoundingClientRect().left -
+        viewport.value.getBoundingClientRect().left,
+      mainCanvas.value.getBoundingClientRect().top -
+        viewport.value.getBoundingClientRect().top,
+    );
+    this.cursorPosPx = new Vec2(this.e.offsetX, this.e.offsetY).sub(topLeft);
+    this.cursorPosMm = this.cursorPosPx.div(
+      currentDocument.value.zoom_px_per_mm,
+    );
+
+    this.deltaMm = new Vec2(this.e.movementX, this.e.movementY).div(
+      currentDocument.value.zoom_px_per_mm,
+    );
+  }
+
+  processPenDown(e: PointerEvent) {
+    this.e = e;
+    this.processEventImpl();
+    this.onPenDown();
+  }
+
+  processPenMove(e: PointerEvent) {
+    this.e = e;
+    this.processEventImpl();
+    if (this.penDown || this.eraserButton || this.stylusButton) {
+      this.onPenDrag();
+    }
+  }
+
+  processPenUp(e: PointerEvent) {
+    this.e = e;
+    this.processEventImpl();
+    this.onPenUp();
+  }
+}
+
+const controls = ref(new Controls());
 
 const pointerDownHandler = (e: PointerEvent) => {
   contextPopupPosPx.value = undefined;
@@ -536,9 +603,9 @@ const pointerDownHandler = (e: PointerEvent) => {
     pointerEvents.value.push(e);
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
-    mouseEvent(e, Action.Down);
+    // mouseEvent(e, Action.Down);
   } else if (e.pointerType == "pen") {
-    penEvent(e, Action.Down);
+    controls.value.processPenDown(e);
   }
   render();
 };
@@ -552,9 +619,9 @@ const pointerMoveHandler = (e: PointerEvent) => {
     pointerEvents.value[index] = e;
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
-    mouseEvent(e, Action.Move);
+    // mouseEvent(e, Action.Move);
   } else if (e.pointerType == "pen") {
-    penEvent(e, Action.Move);
+    controls.value.processPenMove(e);
   }
   render();
 };
@@ -570,9 +637,9 @@ const pointerUpHandler = (e: PointerEvent) => {
     }
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
-    mouseEvent(e, Action.Up);
+    // mouseEvent(e, Action.Up);
   } else if (e.pointerType == "pen") {
-    penEvent(e, Action.Up);
+    controls.value.processPenUp(e);
   }
   render();
 };
@@ -595,6 +662,7 @@ const keydown = (e: KeyboardEvent) => {
     selectedShapes.value = [];
     movedShapes.value = [];
   }
+  store.forceDeepRender = true;
   render();
 };
 
@@ -748,7 +816,7 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
             class="cursor-pointer"
             @click.stop.prevent="
               () => {
-                explicitSelectionTool = true;
+                controls.useSelectionTool();
                 contextPopupPosPx = undefined;
               }
             "
@@ -784,7 +852,7 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
             class="cursor-pointer"
             @click.stop.prevent="
               () => {
-                store.penSizeMm = thickness;
+                controls.usePenTool(thickness);
                 contextPopupPosPx = undefined;
               }
             "

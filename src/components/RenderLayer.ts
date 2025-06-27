@@ -1,6 +1,6 @@
-import { getDocumentSizePx, type Document, type ImageShape, type LineShape, type Shape } from "./Document";
+import { getDocumentSizePx, type BBox, type Document, type ImageShape, type LineShape, type Shape } from "./Document";
 import { assert, useStore } from "./store";
-import type { Vec2 } from "./Vector";
+import { Vec2 } from "./Vector";
 
 export class RenderLayer {
     public canvas: HTMLCanvasElement;
@@ -86,6 +86,16 @@ export class RenderLayer {
         this.ctx.fill();
 
         this.ctx.restore();
+    }
+
+    drawSelectionBbox(bbox: BBox) {
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeStyle = "#e77b00";
+        const posMm = new Vec2(bbox.left, bbox.top);
+        const sizeMm = new Vec2(bbox.right - bbox.left, bbox.bottom - bbox.top);
+        const posPx = posMm.mul(this.doc.zoom_px_per_mm);
+        const sizePx = sizeMm.mul(this.doc.zoom_px_per_mm);
+        this.ctx.strokeRect(posPx.x, posPx.y, sizePx.x, sizePx.y);
     }
 
     drawImageCovering(

@@ -88,7 +88,8 @@ export const useStore = defineStore("main", {
     gridLineDistanceMm: 10,
     paperTexture: undefined as HTMLImageElement | undefined,
     triggerRender: false,
-    deepRender: false,
+    forceDeepRender: false,
+    forceShallowRender: false,
     // canvasPool: [] as {
     //   canvas: HTMLCanvasElement,
     //   pageIndex?: number,
