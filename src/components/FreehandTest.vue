@@ -618,8 +618,9 @@ class Controls {
       updateShapeBBox(line);
       page.value.shapes.push(line);
       page.value.previewLine = undefined;
+      assert(renderer.value);
 
-      // drawShape(getCtx(store.currentPageCanvas), currentPage.previewLine);
+      renderer.value.renderNewShapeToPrerenderer(line);
 
       if (page.value.pageIndex === currentDocument.value.pages.length - 1) {
         currentDocument.value.pages.push({
@@ -677,6 +678,7 @@ class Controls {
   processPenMove(e: PointerEvent) {
     this.e = e;
     this.processEventImpl();
+
     if (this.penDown || this.eraserButton || this.stylusButton) {
       this.onPenDrag();
     } else {
@@ -708,6 +710,10 @@ const pointerDownHandler = (e: PointerEvent) => {
 
 const pointerMoveHandler = (e: PointerEvent) => {
   if (!viewport.value || !mainCanvas.value) return;
+
+  // Filter events that are not triggered by movements but other data (e.g. pen pressure)
+  if (e.movementX === 0 && e.movementY === 0) return;
+
   if (e.pointerType == "touch") {
     const index = pointerEvents.value.findIndex(
       (cachedEv) => cachedEv.pointerId === e.pointerId,
@@ -757,10 +763,10 @@ const keydown = (e: KeyboardEvent) => {
     }
     selectedShapes.value = [];
     movedShapes.value = [];
+    store.forceDeepRender = true;
+    store.saveDocument(currentDocument.value);
+    render();
   }
-  store.forceDeepRender = true;
-  store.saveDocument(currentDocument.value);
-  render();
 };
 
 const paste = (e: ClipboardEvent) => {

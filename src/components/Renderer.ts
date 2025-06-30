@@ -14,6 +14,8 @@ export class Renderer {
     selectionPathPx: undefined | Vec2[] = undefined;
     eraserPosPx: Vec2 | undefined = undefined;
 
+    newlyInsertedShapes: Shape[] = [];
+
     private prevStaticShapes: Shape[] = [];
     private prevDynamicShapes: Shape[] = [];
     private prevSelectedShapes: Shape[] = [];
@@ -32,7 +34,13 @@ export class Renderer {
     async render() {
         const store = useStore();
 
-        const staticChanged = !isDeeplyEqual(this.staticShapes, this.prevStaticShapes);
+        // Filter newly inserted shapes, because when a shape is inserted and rendered onto the prerender buffer, 
+        // we do not need to redraw it entirely, so the check must be skipped. However, when any other shape
+        // changes at the same time as we insert a new one, we still want to redraw. So we can't simply skip the check,
+        // we must exclude the new shape from the check.
+        const staticWithoutNewlyInserted = this.staticShapes.filter((s) => !this.newlyInsertedShapes.includes(s));
+
+        const staticChanged = !isDeeplyEqual(staticWithoutNewlyInserted, this.prevStaticShapes);
         const dynamicChanged = !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes);
 
         const selectedShapesChanged = !isDeeplyEqual(this.selectedShapes, this.prevSelectedShapes);
@@ -42,11 +50,11 @@ export class Renderer {
 
         if (staticChanged || store.forceDeepRender) {
             await this.preRender();
-            // console.log("Static render", staticChanged)
+            console.log("Static render", staticChanged)
         }
         if (dynamicChanged || selectionChanged || eraserChanged || forceShallowRerender || store.forceDeepRender || selectedShapesChanged || store.forceShallowRender) {
             await this.shallowRender();
-            // console.log("dynamic render", dynamicChanged, selectionChanged, eraserChanged, forceShallowRerender, store.forceDeepRender, selectedShapesChanged)
+            console.log("dynamic render", dynamicChanged, selectionChanged, eraserChanged, forceShallowRerender, store.forceDeepRender, selectedShapesChanged)
         }
         this.prevStaticShapes = [...this.staticShapes];
         this.prevDynamicShapes = [...this.dynamicShapes];
@@ -55,8 +63,14 @@ export class Renderer {
         this.prevEraserPos = this.eraserPosPx && new Vec2(this.eraserPosPx);
         this.prevSelectionPath = this.selectionPathPx && [...this.selectionPathPx];
         this.prevPageZoom = this.doc.zoom_px_per_mm;
+        this.newlyInsertedShapes = [];
         store.triggerRender = false;
         store.forceDeepRender = false;
+    }
+
+    async renderNewShapeToPrerenderer(shape: Shape) {
+        this.newlyInsertedShapes.push(shape);
+        this.preRenderer.drawShape(shape);
     }
 
     private async preRender() {
