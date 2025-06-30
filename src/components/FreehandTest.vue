@@ -808,12 +808,55 @@ const paste = (e: ClipboardEvent) => {
 
         const img = await loadImageAsync(imageBase64);
 
-        const imageSize = new Vec2(img.width, img.height);
-        const imagePositionInVp = viewportSizePx.div(2).sub(imageSize.div(2));
+        const imageSizePx = new Vec2(img.width, img.height).div(
+          window.devicePixelRatio,
+        );
+        const imagePositionInVp = viewportSizePx.div(2).sub(imageSizePx.div(2));
         const imagePositionInPagePx = imagePositionInVp.sub(pageTopLeft);
         const imagePositionInPageMm = imagePositionInPagePx.div(
           currentDocument.value.zoom_px_per_mm,
         );
+
+        const imageSizeMm = imageSizePx.div(
+          currentDocument.value.zoom_px_per_mm,
+        );
+
+        const marginMm = 5;
+
+        if (imageSizeMm.x > currentDocument.value.size_mm.x - marginMm * 2) {
+          const ratio =
+            imageSizeMm.x / (currentDocument.value.size_mm.x - marginMm * 2);
+          imageSizeMm.x /= ratio;
+          imageSizeMm.y /= ratio;
+        }
+
+        if (imageSizeMm.y > currentDocument.value.size_mm.y - marginMm * 2) {
+          const ratio =
+            imageSizeMm.y / (currentDocument.value.size_mm.y - marginMm * 2);
+          imageSizeMm.x /= ratio;
+          imageSizeMm.y /= ratio;
+        }
+
+        if (imagePositionInPageMm.x < marginMm) {
+          imagePositionInPageMm.x = marginMm;
+        }
+        if (imagePositionInPageMm.y < marginMm) {
+          imagePositionInPageMm.y = marginMm;
+        }
+        if (
+          imagePositionInPageMm.x + imageSizeMm.x >
+          currentDocument.value.size_mm.x - marginMm
+        ) {
+          imagePositionInPageMm.x =
+            currentDocument.value.size_mm.x - marginMm - imageSizeMm.x;
+        }
+        if (
+          imagePositionInPageMm.y + imageSizeMm.y >
+          currentDocument.value.size_mm.y - marginMm
+        ) {
+          imagePositionInPageMm.y =
+            currentDocument.value.size_mm.y - marginMm - imageSizeMm.y;
+        }
 
         const image: ImageShape = {
           variant: "Image",
@@ -823,13 +866,13 @@ const paste = (e: ClipboardEvent) => {
             x: imagePositionInPageMm.x,
             y: imagePositionInPageMm.y,
           },
-          size: new Vec2(img.width, img.height).div(
-            currentDocument.value.zoom_px_per_mm,
-          ),
+          size: imageSizeMm,
           image: img,
         };
+        assert(renderer.value);
         updateShapeBBox(image);
         page.shapes.push(image);
+        renderer.value.renderNewShapeToPrerenderer(image);
         render();
         await store.saveDocument(currentDocument.value);
       };
