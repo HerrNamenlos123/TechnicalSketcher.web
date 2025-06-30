@@ -101,6 +101,7 @@ const handleWheel = (e: WheelEvent) => {
 const pointerEvents = ref<PointerEvent[]>([]);
 const isZooming = ref(false);
 const lastZoomFingerDistance = ref(0);
+const zoomFactorWhenStartingZooming = ref(1);
 const lastZoomCenter = ref(new Vec2());
 const selectionPathPx = ref<undefined | Vec2[]>();
 const eraserPosPx = ref<undefined | Vec2>();
@@ -127,7 +128,6 @@ const updateZoomingPointers = () => {
         pointerEvents.value[0].movementY,
       ),
     );
-    isZooming.value = false;
   } else if (numberOfFingers === 2) {
     const finger1 = new Vec2(
       pointerEvents.value[0].clientX -
@@ -148,6 +148,8 @@ const updateZoomingPointers = () => {
       isZooming.value = true;
       lastZoomCenter.value = center;
       lastZoomFingerDistance.value = distance;
+      zoomFactorWhenStartingZooming.value =
+        currentDocument.value.zoom_px_per_mm;
       return;
     }
 
@@ -157,9 +159,17 @@ const updateZoomingPointers = () => {
     performZoom(distance / lastZoomFingerDistance.value, center);
     lastZoomFingerDistance.value = distance;
     lastZoomCenter.value = center;
-  } else {
+  }
+
+  if (numberOfFingers !== 2) {
+    if (
+      isZooming.value &&
+      zoomFactorWhenStartingZooming.value !==
+        currentDocument.value.zoom_px_per_mm
+    ) {
+      store.forceDeepRender = true;
+    }
     isZooming.value = false;
-    store.forceDeepRender = true;
   }
 };
 
