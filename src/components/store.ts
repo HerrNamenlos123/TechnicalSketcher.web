@@ -150,13 +150,21 @@ export const useStore = defineStore("main", {
               });
             }
           } else if (handle.kind === "directory") {
-            entries.push({
-              type: "directory",
-              dirname: name,
-              handle: handle,
-              fullPath: parentPath + name + "/",
-              children: await processEntries(handle, parentPath + name + "/"),
-            });
+            const children = await processEntries(handle, parentPath + name + "/");
+            children.sort((a, b) => {
+              const nameA = a.handle.name;
+              const nameB = b.handle.name;
+              return nameA.localeCompare(nameB);
+            })
+            if (children.length > 0) {
+              entries.push({
+                type: "directory",
+                dirname: name,
+                handle: handle,
+                fullPath: parentPath + name + "/",
+                children: children,
+              });
+            }
           }
         }
         return entries;
