@@ -341,7 +341,7 @@ class Controls {
       return;
     }
 
-    // Start moving
+    // Selected: Start moving
     if (selectedShapes.value.length > 0) {
       if (isCursorInAnySelectedBBox(this.cursorPosMm)) {
         this.isMovingShapes = true;
@@ -352,7 +352,13 @@ class Controls {
         this.isMovingShapes = false;
         selectedShapes.value = [];
         movedShapes.value = [];
+        return; // Skip rest: Do not start drawing line when unselecting
       }
+    }
+
+    // Context Popup open: Close without drawing
+    if (contextPopupPosPx.value) {
+      return;
     }
 
     if (this.stylusButton || explicitSelectionTool.value) {
@@ -706,7 +712,10 @@ class Controls {
 const controls = ref(new Controls());
 
 const pointerDownHandler = (e: PointerEvent) => {
-  contextPopupPosPx.value = undefined;
+  nextTick(() => {
+    // Delay so it can be picked up in onPenDown to prevent drawing
+    contextPopupPosPx.value = undefined;
+  });
   if (e.pointerType == "touch") {
     pointerEvents.value.push(e);
     updateZoomingPointers();
