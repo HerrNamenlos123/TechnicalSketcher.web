@@ -21,7 +21,15 @@ export type VaultFS = {
   rootHandle: FileSystemDirectoryHandle;
 };
 
+export type LineShapeFileFormat = {
+  variant: "Line";
+  points: Point[];
+  penColor: string;
+  penThickness: number;
+};
+
 export type ImageShapeFileFormat = {
+  variant: "Image",
   position: {
     x: number;
     y: number;
@@ -29,6 +37,11 @@ export type ImageShapeFileFormat = {
   base64ImageData: string;
   size: Vec2;
 };
+
+export type ShapesInClipboard = {
+  type: "technicalsketcher";
+  shapes: (LineShapeFileFormat | ImageShapeFileFormat)[];
+}
 
 export type TskFileFormat = {
   filetype: string;
@@ -38,20 +51,7 @@ export type TskFileFormat = {
     gridColor: string;
     gridType: "lines" | "dots";
     pages: {
-      shapes: ({
-        variant: "Line";
-        points: Point[];
-        penColor: string;
-        penThickness: number;
-      } | {
-        variant: "Image",
-        position: {
-          x: number;
-          y: number;
-        };
-        base64ImageData: string;
-        size: Vec2;
-      })[];
+      shapes: (LineShapeFileFormat | ImageShapeFileFormat)[];
     }[];
     pageWidthMm: number;
     pageHeightMm: number;

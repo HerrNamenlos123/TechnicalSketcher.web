@@ -19,6 +19,11 @@ import {
   useStore,
 } from "./store";
 import { Renderer } from "./Renderer";
+import type {
+  ImageShapeFileFormat,
+  LineShapeFileFormat,
+  ShapesInClipboard,
+} from "@/types";
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
@@ -258,6 +263,7 @@ const render = () => {
   }
 
   for (const shape of movedShapes.value) {
+    store.forceShallowRender = true;
     renderer.value.dynamicShapes.push(shape);
   }
 
@@ -765,6 +771,117 @@ const pointerUpHandler = (e: PointerEvent) => {
   render();
 };
 
+async function copySelectedShapesToClipboard() {
+  const data: ShapesInClipboard = {
+    type: "technicalsketcher",
+    shapes: selectedShapes.value.map((s) => {
+      if (s.variant === "Line") {
+        return {
+          variant: "Line",
+          penColor: s.penColor,
+          penThickness: s.penThickness,
+          points: s.points.map((p) => ({
+            pressure: p.pressure,
+            x: p.x,
+            y: p.y,
+          })),
+        } satisfies LineShapeFileFormat;
+      } else if (s.variant === "Image") {
+        return {
+          variant: "Image",
+          base64ImageData: s.base64ImageData,
+          position: s.position,
+          size: s.size,
+        } satisfies ImageShapeFileFormat;
+      } else {
+        throw new Error();
+      }
+    }),
+  };
+
+  const blob = new Blob([JSON.stringify(data)], {
+    type: "text/plain",
+  });
+
+  await navigator.clipboard.write([
+    new ClipboardItem({
+      "text/plain": blob,
+    }),
+  ]);
+}
+
+async function pasteShapes() {
+  const items = await navigator.clipboard.read();
+
+  for (const item of items) {
+    if (item.types.includes("text/plain")) {
+      const blob = await item.getType("text/plain");
+      const text = await blob.text();
+      const data = JSON.parse(text) as ShapesInClipboard;
+
+      if (data.type !== "technicalsketcher") {
+        continue;
+      }
+
+      const pastedShapes: Shape[] = [];
+      for (const shape of data.shapes) {
+        if (shape.variant === "Image") {
+          const image: ImageShape = {
+            variant: "Image",
+            base64ImageData: shape.base64ImageData,
+            bbox: { bottom: 0, left: 0, right: 0, top: 0 },
+            image: await loadImageAsync(shape.base64ImageData),
+            position: {
+              x: shape.position.x,
+              y: shape.position.y,
+            },
+            size: new Vec2(shape.size),
+          };
+          updateShapeBBox(image);
+          pastedShapes.push(image);
+        } else if (shape.variant === "Line") {
+          const line: LineShape = {
+            variant: "Line",
+            bbox: { bottom: 0, left: 0, right: 0, top: 0 },
+            penColor: shape.penColor,
+            penThickness: shape.penThickness,
+            points: shape.points.map((p) => ({
+              pressure: p.pressure,
+              x: p.x,
+              y: p.y,
+            })),
+          };
+          updateShapeBBox(line);
+          pastedShapes.push(line);
+        } else {
+          throw new Error();
+        }
+      }
+
+      selectedShapes.value = [];
+      if (pastedShapes.length > 0) {
+        let combinedBBox = pastedShapes[0].bbox;
+        for (const shape of pastedShapes) {
+          combinedBBox = combineBBox(combinedBBox, shape.bbox);
+        }
+
+        for (const shape of pastedShapes) {
+          moveShape(shape, new Vec2(10, 10));
+
+          assert(renderer.value);
+          page.value.shapes.push(shape);
+          renderer.value.renderNewShapeToPrerenderer(shape);
+
+          selectedShapes.value.push(shape);
+        }
+
+        render();
+        await store.saveDocument(currentDocument.value);
+      }
+    }
+  }
+}
+
 const keydown = (e: KeyboardEvent) => {
   if (e.key === "s" && e.ctrlKey) {
     e.preventDefault();
@@ -774,6 +891,15 @@ const keydown = (e: KeyboardEvent) => {
       console.error("Current file has no handle attached");
     }
   }
+
+  if (e.key === "c" && e.ctrlKey) {
+    copySelectedShapesToClipboard();
+  }
+
+  if (e.key === "v" && e.ctrlKey) {
+    pasteShapes();
+  }
+
   if (e.key === "Delete") {
     const page =
       currentDocument.value.pages[currentDocument.value.currentPageIndex];
