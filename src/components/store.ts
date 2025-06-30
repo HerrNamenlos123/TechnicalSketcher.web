@@ -258,7 +258,7 @@ export const useStore = defineStore("main", {
                     bbox: { left: 0, right: 0, top: 0, bottom: 0 },
                     base64ImageData: s.base64ImageData,
                     image: await loadImageAsync(s.base64ImageData),
-                    size: s.size,
+                    size: new Vec2(s.size.x, s.size.y),
                   } satisfies ImageShape;
                   updateShapeBBox(image);
                   return image;
@@ -342,7 +342,10 @@ export const useStore = defineStore("main", {
                   variant: "Image",
                   base64ImageData: s.base64ImageData,
                   position: s.position,
-                  size: s.size,
+                  size: {
+                    x: s.size.x,
+                    y: s.size.y,
+                  }
                 };
               }
             }),

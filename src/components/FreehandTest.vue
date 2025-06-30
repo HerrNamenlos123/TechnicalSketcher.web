@@ -791,7 +791,10 @@ async function copySelectedShapesToClipboard() {
           variant: "Image",
           base64ImageData: s.base64ImageData,
           position: s.position,
-          size: s.size,
+          size: {
+            x: s.size.x,
+            y: s.size.y,
+          },
         } satisfies ImageShapeFileFormat;
       } else {
         throw new Error();
@@ -810,129 +813,36 @@ async function copySelectedShapesToClipboard() {
   ]);
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      resolve(reader.result as string);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function pasteShapes() {
   const items = await navigator.clipboard.read();
 
+  selectedShapes.value = [];
   for (const item of items) {
-    if (item.types.includes("text/plain")) {
-      const blob = await item.getType("text/plain");
-      const text = await blob.text();
-      const data = JSON.parse(text) as ShapesInClipboard;
+    for (const type of item.types) {
+      if (type.startsWith("image/")) {
+        const blob = await item.getType(type);
+        const base64 = await blobToBase64(blob);
 
-      if (data.type !== "technicalsketcher") {
-        continue;
-      }
-
-      const pastedShapes: Shape[] = [];
-      for (const shape of data.shapes) {
-        if (shape.variant === "Image") {
-          const image: ImageShape = {
-            variant: "Image",
-            base64ImageData: shape.base64ImageData,
-            bbox: { bottom: 0, left: 0, right: 0, top: 0 },
-            image: await loadImageAsync(shape.base64ImageData),
-            position: {
-              x: shape.position.x,
-              y: shape.position.y,
-            },
-            size: new Vec2(shape.size),
-          };
-          updateShapeBBox(image);
-          pastedShapes.push(image);
-        } else if (shape.variant === "Line") {
-          const line: LineShape = {
-            variant: "Line",
-            bbox: { bottom: 0, left: 0, right: 0, top: 0 },
-            penColor: shape.penColor,
-            penThickness: shape.penThickness,
-            points: shape.points.map((p) => ({
-              pressure: p.pressure,
-              x: p.x,
-              y: p.y,
-            })),
-          };
-          updateShapeBBox(line);
-          pastedShapes.push(line);
-        } else {
-          throw new Error();
-        }
-      }
-
-      selectedShapes.value = [];
-      if (pastedShapes.length > 0) {
-        let combinedBBox = pastedShapes[0].bbox;
-        for (const shape of pastedShapes) {
-          combinedBBox = combineBBox(combinedBBox, shape.bbox);
-        }
-
-        for (const shape of pastedShapes) {
-          moveShape(shape, new Vec2(10, 10));
-
-          assert(renderer.value);
-          page.value.shapes.push(shape);
-          renderer.value.renderNewShapeToPrerenderer(shape);
-
-          selectedShapes.value.push(shape);
-        }
-
-        render();
-        await store.saveDocument(currentDocument.value);
-      }
-    }
-  }
-}
-
-const keydown = (e: KeyboardEvent) => {
-  if (e.key === "s" && e.ctrlKey) {
-    e.preventDefault();
-    if (currentDocument.value.fileHandle) {
-      store.saveDocument(currentDocument.value);
-    } else {
-      console.error("Current file has no handle attached");
-    }
-  }
-
-  if (e.key === "c" && e.ctrlKey) {
-    copySelectedShapesToClipboard();
-  }
-
-  if (e.key === "v" && e.ctrlKey) {
-    pasteShapes();
-  }
-
-  if (e.key === "Delete") {
-    const page =
-      currentDocument.value.pages[currentDocument.value.currentPageIndex];
-    for (const shape of selectedShapes.value) {
-      page.shapes = page.shapes.filter((s) => s !== shape);
-    }
-    selectedShapes.value = [];
-    movedShapes.value = [];
-    store.forceDeepRender = true;
-    store.saveDocument(currentDocument.value);
-    render();
-  }
-};
-
-const paste = (e: ClipboardEvent) => {
-  const items = e.clipboardData?.items || [];
-  for (const item of items) {
-    if (item.type.startsWith("image/")) {
-      const file = item.getAsFile();
-      if (!file) return;
-      const reader = new FileReader();
-
-      reader.onload = async (e) => {
-        if (!e.target || !viewport.value) return;
-        const imageBase64 = e.target.result;
+        assert(viewport.value);
         const page =
           currentDocument.value.pages[currentDocument.value.currentPageIndex];
-        if (typeof imageBase64 !== "string") return;
+        if (typeof base64 !== "string") return;
         const vpBB = viewport.value.getBoundingClientRect();
         const viewportSizePx = new Vec2(vpBB.width, vpBB.height);
         const pageTopLeft = currentDocument.value.offset;
 
-        const img = await loadImageAsync(imageBase64);
+        const img = await loadImageAsync(base64);
 
         const imageSizePx = new Vec2(img.width, img.height).div(
           window.devicePixelRatio,
@@ -987,7 +897,7 @@ const paste = (e: ClipboardEvent) => {
         const image: ImageShape = {
           variant: "Image",
           bbox: { left: 0, right: 0, top: 0, bottom: 0 },
-          base64ImageData: imageBase64,
+          base64ImageData: base64,
           position: {
             x: imagePositionInPageMm.x,
             y: imagePositionInPageMm.y,
@@ -999,12 +909,107 @@ const paste = (e: ClipboardEvent) => {
         updateShapeBBox(image);
         page.shapes.push(image);
         renderer.value.renderNewShapeToPrerenderer(image);
+        selectedShapes.value.push(image);
         render();
         await store.saveDocument(currentDocument.value);
-      };
+      } else if (item.types.includes("text/plain")) {
+        const blob = await item.getType("text/plain");
+        const text = await blob.text();
+        const data = JSON.parse(text) as ShapesInClipboard;
 
-      reader.readAsDataURL(file);
+        if (data.type !== "technicalsketcher") {
+          continue;
+        }
+
+        const pastedShapes: Shape[] = [];
+        for (const shape of data.shapes) {
+          if (shape.variant === "Image") {
+            const image: ImageShape = {
+              variant: "Image",
+              base64ImageData: shape.base64ImageData,
+              bbox: { bottom: 0, left: 0, right: 0, top: 0 },
+              image: await loadImageAsync(shape.base64ImageData),
+              position: {
+                x: shape.position.x,
+                y: shape.position.y,
+              },
+              size: new Vec2(shape.size.x, shape.size.y),
+            };
+            updateShapeBBox(image);
+            pastedShapes.push(image);
+          } else if (shape.variant === "Line") {
+            const line: LineShape = {
+              variant: "Line",
+              bbox: { bottom: 0, left: 0, right: 0, top: 0 },
+              penColor: shape.penColor,
+              penThickness: shape.penThickness,
+              points: shape.points.map((p) => ({
+                pressure: p.pressure,
+                x: p.x,
+                y: p.y,
+              })),
+            };
+            updateShapeBBox(line);
+            pastedShapes.push(line);
+          } else {
+            throw new Error();
+          }
+        }
+
+        selectedShapes.value = [];
+        if (pastedShapes.length > 0) {
+          let combinedBBox = pastedShapes[0].bbox;
+          for (const shape of pastedShapes) {
+            combinedBBox = combineBBox(combinedBBox, shape.bbox);
+          }
+
+          for (const shape of pastedShapes) {
+            moveShape(shape, new Vec2(10, 10));
+
+            assert(renderer.value);
+            page.value.shapes.push(shape);
+            renderer.value.renderNewShapeToPrerenderer(shape);
+
+            selectedShapes.value.push(shape);
+          }
+
+          render();
+          await store.saveDocument(currentDocument.value);
+        }
+      }
     }
+  }
+}
+
+const keydown = (e: KeyboardEvent) => {
+  if (e.key === "s" && e.ctrlKey) {
+    e.preventDefault();
+    if (currentDocument.value.fileHandle) {
+      store.saveDocument(currentDocument.value);
+    } else {
+      console.error("Current file has no handle attached");
+    }
+  }
+
+  if (e.key === "c" && e.ctrlKey) {
+    copySelectedShapesToClipboard();
+  }
+
+  if (e.key === "v" && e.ctrlKey) {
+    pasteShapes();
+  }
+
+  if (e.key === "Delete") {
+    const page =
+      currentDocument.value.pages[currentDocument.value.currentPageIndex];
+    for (const shape of selectedShapes.value) {
+      page.shapes = page.shapes.filter((s) => s !== shape);
+    }
+    selectedShapes.value = [];
+    movedShapes.value = [];
+    store.forceDeepRender = true;
+    store.saveDocument(currentDocument.value);
+    render();
   }
 };
 
@@ -1016,13 +1021,11 @@ onMounted(async () => {
   chooseDefaultPen();
 
   window.addEventListener("keydown", keydown);
-  window.addEventListener("paste", paste);
   render();
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
-  window.removeEventListener("paste", paste);
 });
 
 const contextPopupRef = ref<HTMLDivElement | undefined>();

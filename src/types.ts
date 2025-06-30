@@ -1,5 +1,4 @@
 import type { Point } from "./components/Document";
-import type { Vec2 } from "./components/Vector";
 
 export type FSFileEntry = {
   type: "file";
@@ -35,7 +34,10 @@ export type ImageShapeFileFormat = {
     y: number;
   };
   base64ImageData: string;
-  size: Vec2;
+  size: {
+    x: number;
+    y: number;
+  };
 };
 
 export type ShapesInClipboard = {

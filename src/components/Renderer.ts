@@ -69,8 +69,10 @@ export class Renderer {
     }
 
     async renderNewShapeToPrerenderer(shape: Shape) {
+        const store = useStore();
         this.newlyInsertedShapes.push(shape);
         this.preRenderer.drawShape(shape);
+        store.forceShallowRender = true;
     }
 
     private async preRender() {
