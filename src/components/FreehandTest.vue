@@ -348,6 +348,7 @@ class Controls {
     }
 
     // Selected: Start moving
+    let skipDrawLine = false;
     if (selectedShapes.value.length > 0) {
       if (isCursorInAnySelectedBBox(this.cursorPosMm)) {
         this.isMovingShapes = true;
@@ -358,7 +359,7 @@ class Controls {
         this.isMovingShapes = false;
         selectedShapes.value = [];
         movedShapes.value = [];
-        return; // Skip rest: Do not start drawing line when unselecting
+        skipDrawLine = true;
       }
     }
 
@@ -380,6 +381,10 @@ class Controls {
       eraserPosPx.value = this.cursorPosMm.mul(
         currentDocument.value.zoom_px_per_mm,
       );
+      return;
+    }
+
+    if (skipDrawLine) {
       return;
     }
 
