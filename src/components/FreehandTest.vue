@@ -41,6 +41,10 @@ const colors = [
 
 const penThicknesses = [0.1, 0.3, 0.5, 0.7, 0.9];
 
+const chooseDefaultPen = () => {
+  controls.value.usePenTool(penThicknesses[2]);
+};
+
 const props = defineProps<{
   maxZoom: number;
   minZoom: number;
@@ -814,6 +818,8 @@ onMounted(async () => {
   await nextTick();
   assert(mainCanvas.value);
   renderer.value = new Renderer(currentDocument.value, mainCanvas.value);
+
+  chooseDefaultPen();
 
   window.addEventListener("keydown", keydown);
   window.addEventListener("paste", paste);
