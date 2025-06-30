@@ -458,6 +458,10 @@ export const useStore = defineStore("main", {
       const pdfImage = await pdfDoc.embedPng(imgBytes);
 
       for (const page of doc.pages) {
+        if (page.shapes.length === 0) {
+          continue;
+        }
+
         const pdfPage = pdfDoc.addPage([doc.size_mm.x, doc.size_mm.y]);
 
         if (this.includePaperTextureInPdf) {

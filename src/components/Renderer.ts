@@ -50,11 +50,11 @@ export class Renderer {
 
         if (staticChanged || store.forceDeepRender) {
             await this.preRender();
-            console.log("Static render", staticChanged)
+            // console.log("Static render", staticChanged)
         }
         if (dynamicChanged || selectionChanged || eraserChanged || forceShallowRerender || store.forceDeepRender || selectedShapesChanged || store.forceShallowRender) {
             await this.shallowRender();
-            console.log("dynamic render", dynamicChanged, selectionChanged, eraserChanged, forceShallowRerender, store.forceDeepRender, selectedShapesChanged)
+            // console.log("dynamic render", dynamicChanged, selectionChanged, eraserChanged, forceShallowRerender, store.forceDeepRender, selectedShapesChanged)
         }
         this.prevStaticShapes = [...this.staticShapes];
         this.prevDynamicShapes = [...this.dynamicShapes];
