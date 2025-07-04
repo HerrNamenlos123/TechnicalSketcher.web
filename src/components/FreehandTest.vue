@@ -331,6 +331,218 @@ class Controls {
 
   constructor() {}
 
+  onMouseDown() {
+    assert(this.e);
+
+    // Start resizing
+    if (this.isCursorInResizeHandle()) {
+      this.isResizing = true;
+      const bbox = this.getCombinedSelectionBBox();
+      this.resizeOrigin = new Vec2(bbox.left, bbox.top);
+      this.resizeLastOriginDistance = this.cursorPosMm
+        .sub(this.resizeOrigin)
+        .mag();
+      movedShapes.value = [...selectedShapes.value];
+      selectionPathPx.value = undefined;
+      return;
+    }
+
+    // Selected: Start moving
+    if (selectedShapes.value.length > 0) {
+      if (isCursorInAnySelectedBBox(this.cursorPosMm)) {
+        this.isMovingShapes = true;
+        movedShapes.value = [...selectedShapes.value];
+        selectionPathPx.value = undefined;
+        return;
+      } else {
+        this.isMovingShapes = false;
+        selectedShapes.value = [];
+        movedShapes.value = [];
+      }
+    }
+
+    // Context Popup open: Close without drawing
+    if (contextPopupPosPx.value) {
+      return;
+    }
+
+    // Always select
+    // if (this.stylusButton || explicitSelectionTool.value) {
+    selectedShapes.value = [];
+    movedShapes.value = [];
+    selectionPathPx.value = [this.cursorPosPx];
+    this.startedSelectionWithStylusButton = this.stylusButton;
+    // return;
+    // }
+  }
+
+  onMouseDrag() {
+    assert(this.e);
+
+    if (this.isResizing) {
+      const distToOrigin = this.cursorPosMm.sub(this.resizeOrigin).mag();
+      const ratio = distToOrigin / this.resizeLastOriginDistance;
+      for (const shape of selectedShapes.value) {
+        resizeShape(shape, this.resizeOrigin, ratio);
+        if (this.e.ctrlKey || this.e.shiftKey) {
+          if (shape.variant === "Line") {
+            shape.penThickness *= ratio;
+          }
+        }
+      }
+      this.resizeLastOriginDistance = distToOrigin;
+      return;
+    }
+
+    if (this.isMovingShapes) {
+      for (const shape of selectedShapes.value) {
+        moveShape(shape, this.deltaMm);
+      }
+      return;
+    }
+
+    // Selecting
+    if (selectionPathPx.value) {
+      selectionPathPx.value.push(this.cursorPosPx);
+      return;
+    }
+
+    // Erasing
+    if (this.eraserButton) {
+      for (const shape of page.value.shapes) {
+        const eraserSizeMm =
+          store.eraserSizePx / currentDocument.value.zoom_px_per_mm;
+        eraserPosPx.value = this.cursorPosMm.mul(
+          currentDocument.value.zoom_px_per_mm,
+        );
+        const eraserPosMm = this.cursorPosMm;
+
+        if (
+          eraserPosMm.x + eraserSizeMm / 2 < shape.bbox.left ||
+          eraserPosMm.x - eraserSizeMm / 2 > shape.bbox.right ||
+          eraserPosMm.y + eraserSizeMm / 2 < shape.bbox.top ||
+          eraserPosMm.y - eraserSizeMm / 2 > shape.bbox.bottom
+        ) {
+          continue;
+        }
+
+        let deleteShape = false;
+        if (shape.variant === "Line") {
+          const outlineMm = store
+            .getPath(shape.penThickness, shape.points, "accurate")
+            .map((p) => new Vec2(p[0], p[1]));
+
+          if (pointInPolygon(eraserPosMm, outlineMm)) {
+            deleteShape = true;
+          } else {
+            for (let i = 0; i < outlineMm.length - 1; i++) {
+              if (
+                circleOutlineIntersectsLine(
+                  eraserPosMm,
+                  eraserSizeMm / 2,
+                  outlineMm[i],
+                  outlineMm[i + 1],
+                )
+              ) {
+                deleteShape = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (deleteShape) {
+          page.value.shapes = page.value.shapes.filter((s) => s !== shape);
+          store.saveDocument(currentDocument.value);
+          return;
+        }
+      }
+    }
+  }
+
+  onMouseUp() {
+    assert(this.e);
+
+    eraserPosPx.value = undefined;
+    this.isMovingShapes = false;
+
+    if (this.isResizing) {
+      this.isResizing = false;
+    }
+
+    if (selectionPathPx.value) {
+      // Releasing while using selection
+      if (
+        selectionPathPerimeterLength.value <= CONTEXT_MENU_PERIMETER_LIMIT_PX
+      ) {
+        // Has not moved while selecting
+        selectShapeUnderCursor(page.value, this.cursorPosMm);
+        selectionPathPx.value = undefined;
+        return;
+      }
+
+      // Has selected and moved
+      if (selectionPathPx.value) {
+        for (const shape of page.value.shapes) {
+          let skip = false;
+          if (shape.variant === "Line") {
+            for (const point of shape.points) {
+              if (
+                !pointInPolygon(
+                  new Vec2(point.x, point.y).mul(
+                    currentDocument.value.zoom_px_per_mm,
+                  ),
+                  selectionPathPx.value,
+                )
+              ) {
+                skip = true;
+                break;
+              }
+            }
+          } else {
+            const topLeft = new Vec2(shape.position.x, shape.position.y);
+            const topRight = new Vec2(
+              shape.position.x + shape.size.x,
+              shape.position.y,
+            );
+            const bottomRight = new Vec2(
+              shape.position.x + shape.size.x,
+              shape.position.y + shape.size.y,
+            );
+            const bottomLeft = new Vec2(
+              shape.position.x,
+              shape.position.y + shape.size.y,
+            );
+            if (
+              !pointInPolygon(
+                topLeft.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              ) ||
+              !pointInPolygon(
+                topRight.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              ) ||
+              !pointInPolygon(
+                bottomRight.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              ) ||
+              !pointInPolygon(
+                bottomLeft.mul(currentDocument.value.zoom_px_per_mm),
+                selectionPathPx.value,
+              )
+            ) {
+              skip = true;
+            }
+          }
+          if (skip) continue;
+          selectedShapes.value.push(shape);
+        }
+        selectionPathPx.value = undefined;
+        return;
+      }
+    }
+  }
+
   onPenDown() {
     assert(this.e);
 
@@ -718,6 +930,29 @@ class Controls {
     this.processEventImpl();
     this.onPenUp();
   }
+
+  processMouseDown(e: PointerEvent) {
+    this.e = e;
+    this.processEventImpl();
+    this.onMouseDown();
+  }
+
+  processMouseMove(e: PointerEvent) {
+    this.e = e;
+    this.processEventImpl();
+
+    if (this.penDown || this.eraserButton || this.stylusButton) {
+      this.onMouseDrag();
+    } else {
+      // this.onMouseHover();
+    }
+  }
+
+  processMouseUp(e: PointerEvent) {
+    this.e = e;
+    this.processEventImpl();
+    this.onMouseUp();
+  }
 }
 
 const controls = ref(new Controls());
@@ -731,7 +966,7 @@ const pointerDownHandler = (e: PointerEvent) => {
     pointerEvents.value.push(e);
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
-    // mouseEvent(e, Action.Down);
+    controls.value.processMouseDown(e);
   } else if (e.pointerType == "pen") {
     controls.value.processPenDown(e);
   }
@@ -751,7 +986,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
     pointerEvents.value[index] = e;
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
-    // mouseEvent(e, Action.Move);
+    controls.value.processMouseMove(e);
   } else if (e.pointerType == "pen") {
     controls.value.processPenMove(e);
   }
@@ -769,7 +1004,7 @@ const pointerUpHandler = (e: PointerEvent) => {
     }
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
-    // mouseEvent(e, Action.Up);
+    controls.value.processMouseUp(e);
   } else if (e.pointerType == "pen") {
     controls.value.processPenUp(e);
   }
