@@ -28,7 +28,7 @@ export type LineShapeFileFormat = {
 };
 
 export type ImageShapeFileFormat = {
-  variant: "Image",
+  variant: "Image";
   position: {
     x: number;
     y: number;
@@ -40,10 +40,27 @@ export type ImageShapeFileFormat = {
   };
 };
 
+export type TextblockShapeFileFormat = {
+  variant: "Textblock";
+  position: {
+    x: number;
+    y: number;
+  };
+  size: {
+    x: number;
+    y: number;
+  };
+  rawText: string;
+};
+
 export type ShapesInClipboard = {
   type: "technicalsketcher";
-  shapes: (LineShapeFileFormat | ImageShapeFileFormat)[];
-}
+  shapes: (
+    | LineShapeFileFormat
+    | ImageShapeFileFormat
+    | TextblockShapeFileFormat
+  )[];
+};
 
 export type TskFileFormat = {
   filetype: string;
@@ -53,7 +70,11 @@ export type TskFileFormat = {
     gridColor: string;
     gridType: "lines" | "dots";
     pages: {
-      shapes: (LineShapeFileFormat | ImageShapeFileFormat)[];
+      shapes: (
+        | LineShapeFileFormat
+        | ImageShapeFileFormat
+        | TextblockShapeFileFormat
+      )[];
     }[];
     pageWidthMm: number;
     pageHeightMm: number;

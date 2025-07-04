@@ -8,6 +8,7 @@ import {
   type LineShape,
   type Page,
   type Shape,
+  type TextblockShape,
 } from "./Document";
 import {
   assert,
@@ -24,12 +25,14 @@ import type {
   LineShapeFileFormat,
   ShapesInClipboard,
 } from "@/types";
+import { NonFullScreenPageMode } from "pdf-lib";
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
 const store = useStore();
 const currentDocument = defineModel<Document>("document", { required: true });
 const explicitSelectionTool = ref(false);
+const textTool = ref(false);
 const selectedShapes = ref<Shape[]>([]);
 const movedShapes = ref<Shape[]>([]);
 
@@ -78,6 +81,10 @@ const performZoom = (ratio: number, center: Vec2) => {
   currentDocument.value.offset = center.add(centerToOrigin.mul(ratio));
   currentDocument.value.zoom_px_per_mm *= ratio;
 };
+
+const textShapes = computed(() =>
+  page.value.shapes.filter((s) => s.variant === "Textblock"),
+);
 
 const handleWheel = (e: WheelEvent) => {
   if (!viewport.value || !renderer.value) return;
@@ -281,6 +288,9 @@ const moveShape = (shape: Shape, delta: Vec2) => {
   if (shape.variant === "Image") {
     shape.position.x += delta.x;
     shape.position.y += delta.y;
+  } else if (shape.variant === "Textblock") {
+    shape.position.x += delta.x;
+    shape.position.y += delta.y;
   } else {
     for (const p of shape.points) {
       p.x += delta.x;
@@ -295,6 +305,14 @@ const moveShape = (shape: Shape, delta: Vec2) => {
 
 const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
   if (shape.variant === "Image") {
+    const newPos = origin.add(
+      new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio),
+    );
+    shape.position.x = newPos.x;
+    shape.position.y = newPos.y;
+    shape.size.x *= ratio;
+    shape.size.y *= ratio;
+  } else if (shape.variant === "Textblock") {
     const newPos = origin.add(
       new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio),
     );
@@ -363,6 +381,10 @@ class Controls {
 
     // Context Popup open: Close without drawing
     if (contextPopupPosPx.value) {
+      return;
+    }
+
+    if (textTool.value) {
       return;
     }
 
@@ -468,6 +490,24 @@ class Controls {
 
     if (this.isResizing) {
       this.isResizing = false;
+    }
+
+    if (textTool.value) {
+      const textblock: TextblockShape = {
+        variant: "Textblock",
+        position: {
+          x: this.cursorPosMm.x,
+          y: this.cursorPosMm.y,
+        },
+        bbox: { bottom: 0, left: 0, right: 0, top: 0 },
+        rawText:
+          "Hallo dies ist ein sehr langer Text, der ausdrücklich dafür gemacht wurde, zu lange für dieses Textfeld zu sein, um zu Testen, wie die Zeilen im Textfeld umbrechen.",
+        size: new Vec2(70, 40),
+      };
+      updateShapeBBox(textblock);
+      page.value.shapes.push(textblock);
+      selectedShapes.value = [textblock];
+      return;
     }
 
     if (selectionPathPx.value) {
@@ -1231,6 +1271,10 @@ const keydown = (e: KeyboardEvent) => {
     }
   }
 
+  if (e.key === "t") {
+    textTool.value = true;
+  }
+
   if (e.key === "c" && e.ctrlKey) {
     copySelectedShapesToClipboard();
   }
@@ -1253,6 +1297,12 @@ const keydown = (e: KeyboardEvent) => {
   }
 };
 
+const keyup = (e: KeyboardEvent) => {
+  if (e.key === "t") {
+    textTool.value = false;
+  }
+};
+
 onMounted(async () => {
   await nextTick();
   assert(mainCanvas.value);
@@ -1261,11 +1311,13 @@ onMounted(async () => {
   chooseDefaultPen();
 
   window.addEventListener("keydown", keydown);
+  window.addEventListener("keyup", keyup);
   render();
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
+  window.removeEventListener("keyup", keyup);
 });
 
 const contextPopupRef = ref<HTMLDivElement | undefined>();
@@ -1279,7 +1331,6 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
       'cursor-se-resize': cursorResize,
     }"
     @contextmenu.prevent
-    @keydown="keydown"
     @pointercancel="pointerUpHandler($event)"
     @pointerdown="pointerDownHandler($event)"
     @pointerleave="pointerUpHandler($event)"
@@ -1306,6 +1357,26 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
         height: getDocumentSizePx(currentDocument).y + 'px',
       }"
     />
+    <template v-for="textblock in textShapes" :key="textblock">
+      <textarea
+        v-model="textblock.rawText"
+        class="absolute"
+        :style="{
+          left:
+            currentDocument.offset.x +
+            textblock.position.x * currentDocument.zoom_px_per_mm +
+            'px',
+          top:
+            currentDocument.offset.y +
+            textblock.position.y * currentDocument.zoom_px_per_mm +
+            'px',
+          width: textblock.size.x * currentDocument.zoom_px_per_mm + 'px',
+          height: textblock.size.y * currentDocument.zoom_px_per_mm + 'px',
+          resize: 'none',
+          background: 'transparent',
+        }"
+      />
+    </template>
     <div
       v-if="contextPopupPosPx"
       ref="contextPopupRef"

@@ -35,13 +35,24 @@ export type ImageShape = {
   size: Vec2;
 };
 
-export type Shape = ImageShape | LineShape;
+export type TextblockShape = {
+  variant: "Textblock";
+  position: {
+    x: number;
+    y: number;
+  };
+  bbox: BBox;
+  size: Vec2;
+  rawText: string;
+};
+
+export type Shape = ImageShape | LineShape | TextblockShape;
 
 export type Page = {
   previewLine?: LineShape;
   pageIndex: number;
   shapes: Shape[];
-}
+};
 
 export function getCtx(canvas: HTMLCanvasElement | undefined) {
   assert(canvas);
@@ -65,10 +76,8 @@ export type Document = {
   fileHandle?: FSFileEntry;
   size_mm: Vec2;
   currentPageIndex: number;
-}
+};
 
 export function getDocumentSizePx(doc: Document) {
-  return doc.size_mm
-    .mul(doc.zoom_px_per_mm)
-    .round();
+  return doc.size_mm.mul(doc.zoom_px_per_mm).round();
 }

@@ -1,6 +1,28 @@
-import type { FSDirEntry, FSFileEntry, TskFileFormat, VaultFS } from "@/types";
+import type {
+  FSDirEntry,
+  FSFileEntry,
+  ImageShapeFileFormat,
+  LineShapeFileFormat,
+  TextblockShapeFileFormat,
+  TskFileFormat,
+  VaultFS,
+} from "@/types";
 import { defineStore } from "pinia";
-import { type Point, DEFAULT_PAGE_COLOR, DEFAULT_PAGE_SIZE, DEFAULT_GRID_COLOR, DEFAULT_ZOOM_PX_PER_MM, type Document, type Page, DEFAULT_DOCUMENT_OFFSET, type BBox, type Shape, type ImageShape, type LineShape } from "./Document";
+import {
+  type Point,
+  DEFAULT_PAGE_COLOR,
+  DEFAULT_PAGE_SIZE,
+  DEFAULT_GRID_COLOR,
+  DEFAULT_ZOOM_PX_PER_MM,
+  type Document,
+  type Page,
+  DEFAULT_DOCUMENT_OFFSET,
+  type BBox,
+  type Shape,
+  type ImageShape,
+  type LineShape,
+  type TextblockShape,
+} from "./Document";
 import { Vec2 } from "./Vector";
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import getStroke from "perfect-freehand";
@@ -20,15 +42,20 @@ export function assert<T>(
 
 export function loadImageAsync(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = src
-  })
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
 }
 
 export function isPointInBBox(bbox: BBox, point: Vec2) {
-  return point.x >= bbox.left && point.x <= bbox.right && point.y >= bbox.top && point.y <= bbox.bottom;
+  return (
+    point.x >= bbox.left &&
+    point.x <= bbox.right &&
+    point.y >= bbox.top &&
+    point.y <= bbox.bottom
+  );
 }
 
 export function updateShapeBBox(shape: Shape) {
@@ -57,8 +84,7 @@ export function updateShapeBBox(shape: Shape) {
       }
     }
     shape.bbox = bbox;
-  }
-  else {
+  } else {
     shape.bbox = {
       left: shape.position.x,
       top: shape.position.y,
@@ -74,7 +100,7 @@ export function combineBBox(a: BBox, b: BBox): BBox {
     right: Math.max(a.right, b.right),
     top: Math.min(a.top, b.top),
     bottom: Math.max(a.bottom, b.bottom),
-  }
+  };
 }
 
 export const useStore = defineStore("main", {
@@ -150,12 +176,15 @@ export const useStore = defineStore("main", {
               });
             }
           } else if (handle.kind === "directory") {
-            const children = await processEntries(handle, parentPath + name + "/");
+            const children = await processEntries(
+              handle,
+              parentPath + name + "/",
+            );
             children.sort((a, b) => {
               const nameA = a.handle.name;
               const nameB = b.handle.name;
               return nameA.localeCompare(nameB);
-            })
+            });
             if (children.length > 0) {
               entries.push({
                 type: "directory",
@@ -197,7 +226,7 @@ export const useStore = defineStore("main", {
             if (
               dirHandle &&
               (await dirHandle.queryPermission({ mode: "readwrite" })) ===
-              "granted"
+                "granted"
             ) {
               useStore().vault = await this.readVault(dirHandle);
             }
@@ -228,50 +257,69 @@ export const useStore = defineStore("main", {
         }
 
         const document: Document = {
-          pages: await Promise.all(input.data.pages.map(
-            async (p, i): Promise<Page> =>
-            ({
-              pageIndex: i,
-              shapes: await Promise.all(p.shapes.map(async (s) => {
-                if (s.variant === "Line") {
-                  const line = {
-                    variant: "Line",
-                    points: s.points.map((point) => ({
-                      x: point.x,
-                      y: point.y,
-                      pressure: point.pressure,
-                    })),
-                    bbox: { left: 0, right: 0, top: 0, bottom: 0 },
-                    penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
-                    penThickness: s.penThickness,
-                  } satisfies LineShape;
-                  updateShapeBBox(line);
-                  return line;
-                }
-                else if (s.variant === "Image") {
-                  const image = {
-                    variant: "Image",
-                    position: {
-                      x: s.position.x,
-                      y: s.position.y,
-                    },
-                    bbox: { left: 0, right: 0, top: 0, bottom: 0 },
-                    base64ImageData: s.base64ImageData,
-                    image: await loadImageAsync(s.base64ImageData),
-                    size: new Vec2(s.size.x, s.size.y),
-                  } satisfies ImageShape;
-                  updateShapeBBox(image);
-                  return image;
-                }
-                else {
-                  throw new Error();
-                }
-              })),
-              previewLine: undefined,
-            })),
+          pages: await Promise.all(
+            input.data.pages.map(
+              async (p, i): Promise<Page> => ({
+                pageIndex: i,
+                shapes: await Promise.all(
+                  p.shapes.map(async (s) => {
+                    if (s.variant === "Line") {
+                      const line = {
+                        variant: "Line",
+                        points: s.points.map((point) => ({
+                          x: point.x,
+                          y: point.y,
+                          pressure: point.pressure,
+                        })),
+                        bbox: { left: 0, right: 0, top: 0, bottom: 0 },
+                        penColor:
+                          typeof s.penColor === "string"
+                            ? s.penColor
+                            : "#000000",
+                        penThickness: s.penThickness,
+                      } satisfies LineShape;
+                      updateShapeBBox(line);
+                      return line;
+                    } else if (s.variant === "Image") {
+                      const image = {
+                        variant: "Image",
+                        position: {
+                          x: s.position.x,
+                          y: s.position.y,
+                        },
+                        bbox: { left: 0, right: 0, top: 0, bottom: 0 },
+                        base64ImageData: s.base64ImageData,
+                        image: await loadImageAsync(s.base64ImageData),
+                        size: new Vec2(s.size.x, s.size.y),
+                      } satisfies ImageShape;
+                      updateShapeBBox(image);
+                      return image;
+                    } else if (s.variant === "Textblock") {
+                      const textblock = {
+                        variant: "Textblock",
+                        position: {
+                          x: s.position.x,
+                          y: s.position.y,
+                        },
+                        bbox: { left: 0, right: 0, top: 0, bottom: 0 },
+                        rawText: s.rawText,
+                        size: new Vec2(s.size.x, s.size.y),
+                      } satisfies TextblockShape;
+                      updateShapeBBox(textblock);
+                      return textblock;
+                    } else {
+                      throw new Error();
+                    }
+                  }),
+                ),
+                previewLine: undefined,
+              }),
+            ),
           ),
-          size_mm:
-            new Vec2(input.data.pageWidthMm ?? DEFAULT_PAGE_SIZE.x, input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y),
+          size_mm: new Vec2(
+            input.data.pageWidthMm ?? DEFAULT_PAGE_SIZE.x,
+            input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y,
+          ),
           pageColor: input.data.pageColor,
           gridColor: input.data.gridColor,
           gridType: input.data.gridType,
@@ -324,31 +372,45 @@ export const useStore = defineStore("main", {
           gridColor: document.gridColor,
           gridType: document.gridType,
           pages: document.pages.map((p) => ({
-            shapes: p.shapes.map((s) => {
-              if (s.variant === "Line") {
-                return {
-                  variant: "Line",
-                  points: s.points.map((point) => ({
-                    x: point.x,
-                    y: point.y,
-                    pressure: point.pressure,
-                  })),
-                  penThickness: s.penThickness,
-                  penColor: s.penColor,
-                };
-              }
-              else {
-                return {
-                  variant: "Image",
-                  base64ImageData: s.base64ImageData,
-                  position: s.position,
-                  size: {
-                    x: s.size.x,
-                    y: s.size.y,
+            shapes: p.shapes
+              .map((s) => {
+                if (s.variant === "Line") {
+                  return {
+                    variant: "Line",
+                    points: s.points.map((point) => ({
+                      x: point.x,
+                      y: point.y,
+                      pressure: point.pressure,
+                    })),
+                    penThickness: s.penThickness,
+                    penColor: s.penColor,
+                  } satisfies LineShapeFileFormat;
+                } else if (s.variant === "Textblock") {
+                  if (s.rawText.length === 0) {
+                    return undefined;
                   }
-                };
-              }
-            }),
+                  return {
+                    variant: "Textblock",
+                    position: s.position,
+                    size: {
+                      x: s.size.x,
+                      y: s.size.y,
+                    },
+                    rawText: s.rawText,
+                  } satisfies TextblockShapeFileFormat;
+                } else {
+                  return {
+                    variant: "Image",
+                    base64ImageData: s.base64ImageData,
+                    position: s.position,
+                    size: {
+                      x: s.size.x,
+                      y: s.size.y,
+                    },
+                  } satisfies ImageShapeFileFormat;
+                }
+              })
+              .filter((s) => !!s),
           })),
           pageWidthMm: document.size_mm.x,
           pageHeightMm: document.size_mm.y,
@@ -391,9 +453,13 @@ export const useStore = defineStore("main", {
         gridType: "lines",
         offset: DEFAULT_DOCUMENT_OFFSET,
         pageColor: DEFAULT_PAGE_COLOR,
-        pages: [{
-          pageIndex: 0, previewLine: undefined, shapes: [],
-        }],
+        pages: [
+          {
+            pageIndex: 0,
+            previewLine: undefined,
+            shapes: [],
+          },
+        ],
         zoom_px_per_mm: DEFAULT_ZOOM_PX_PER_MM,
         size_mm: DEFAULT_PAGE_SIZE,
         currentPageIndex: 0,
@@ -420,24 +486,27 @@ export const useStore = defineStore("main", {
         streamline: mode === "fast" ? 0.6 : 0.6,
         thinning: 0.1,
       });
-      const scaledResult = result.map((p) => [p[0] / this.perfectFreehandAccuracyScaling, p[1] / this.perfectFreehandAccuracyScaling]);
+      const scaledResult = result.map((p) => [
+        p[0] / this.perfectFreehandAccuracyScaling,
+        p[1] / this.perfectFreehandAccuracyScaling,
+      ]);
       return scaledResult;
     },
     async getImageBytesFromElement(img: HTMLImageElement): Promise<Uint8Array> {
-      const canvas = document.createElement('canvas');
+      const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0);
 
-      return new Promise(resolve => {
-        canvas.toBlob(blob => {
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => {
           const reader = new FileReader();
           reader.onloadend = () => {
             resolve(new Uint8Array(reader.result as ArrayBuffer));
           };
           reader.readAsArrayBuffer(blob!);
-        }, 'image/png');
+        }, "image/png");
       });
     },
     async exportDocumentAsPdf(doc: Document) {
@@ -445,18 +514,14 @@ export const useStore = defineStore("main", {
         if (!points.length) return "";
 
         const d = [];
-        d.push(
-          `M${points[0][0]} ${points[0][1]}`,
-        );
+        d.push(`M${points[0][0]} ${points[0][1]}`);
 
         for (let i = 1; i < points.length - 1; i++) {
           const [x0, y0] = points[i];
           const [x1, y1] = points[i + 1];
           const mx = (x0 + x1) / 2;
           const my = (y0 + y1) / 2;
-          d.push(
-            `Q${x0} ${y0} ${mx} ${my}`,
-          );
+          d.push(`Q${x0} ${y0} ${mx} ${my}`);
         }
 
         d.push("Z");
@@ -481,7 +546,7 @@ export const useStore = defineStore("main", {
             y: pdfPage.getHeight(),
             width: pdfPage.getWidth(),
             height: -pdfPage.getHeight(),
-          })
+          });
         }
 
         this.drawGridPdf(pdfPage, doc);
@@ -498,19 +563,24 @@ export const useStore = defineStore("main", {
             const { r, g, b, a } = this.parseColor(shape.penColor);
             pdfPage.drawSvgPath(d, {
               color: rgb(r / 255, g / 255, b / 255),
-              opacity: a
+              opacity: a,
             });
-          }
-          else {
-            const base64 = shape.base64ImageData.replace(/^data:image\/\w+;base64,/, '');
-            const byteArray = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+          } else if (shape.variant === "Textblock") {
+          } else {
+            const base64 = shape.base64ImageData.replace(
+              /^data:image\/\w+;base64,/,
+              "",
+            );
+            const byteArray = Uint8Array.from(atob(base64), (c) =>
+              c.charCodeAt(0),
+            );
             const image = await pdfDoc.embedPng(byteArray);
             pdfPage.drawImage(image, {
               x: shape.position.x,
               y: pdfPage.getHeight() - shape.size.y - shape.position.y,
               width: shape.size.x,
               height: shape.size.y,
-            })
+            });
           }
         }
       }
@@ -538,9 +608,11 @@ export const useStore = defineStore("main", {
       colorStr = colorStr.trim();
 
       // If color is in rgba(r,g,b,a) format
-      if (colorStr.startsWith('rgba')) {
+      if (colorStr.startsWith("rgba")) {
         // Match rgba numbers
-        const match = colorStr.match(/rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1|0?\.\d+)\s*\)/i);
+        const match = colorStr.match(
+          /rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1|0?\.\d+)\s*\)/i,
+        );
         if (match) {
           return {
             r: parseInt(match[1], 10),
@@ -552,31 +624,33 @@ export const useStore = defineStore("main", {
       }
 
       // If color is in hex format (#RGB or #RRGGBB)
-      if (colorStr.startsWith('#')) {
+      if (colorStr.startsWith("#")) {
         let r, g, b, a;
-        if (colorStr.length === 4) {  // #RGB shorthand
+        if (colorStr.length === 4) {
+          // #RGB shorthand
           r = parseInt(colorStr[1] + colorStr[1], 16);
           g = parseInt(colorStr[2] + colorStr[2], 16);
           b = parseInt(colorStr[3] + colorStr[3], 16);
           a = 255;
-        } else if (colorStr.length === 7) {  // #RRGGBB
+        } else if (colorStr.length === 7) {
+          // #RRGGBB
           r = parseInt(colorStr.slice(1, 3), 16);
           g = parseInt(colorStr.slice(3, 5), 16);
           b = parseInt(colorStr.slice(5, 7), 16);
           a = 255;
-        } else if (colorStr.length === 9) {  // #RRGGBBAA
+        } else if (colorStr.length === 9) {
+          // #RRGGBBAA
           r = parseInt(colorStr.slice(1, 3), 16);
           g = parseInt(colorStr.slice(3, 5), 16);
           b = parseInt(colorStr.slice(5, 7), 16);
           a = parseInt(colorStr.slice(7, 9), 16);
-        }
-        else {
-          throw new Error('Invalid hex color length');
+        } else {
+          throw new Error("Invalid hex color length");
         }
         return { r, g, b, a: a / 255 };
       }
 
-      throw new Error('Unsupported color format');
+      throw new Error("Unsupported color format");
     },
     async drawGridPdf(pdfPage: PDFPage, doc: Document) {
       for (let y = 0; y < doc.size_mm.y; y += this.gridLineDistanceMm) {
@@ -597,19 +671,18 @@ export const useStore = defineStore("main", {
     },
     loadImage(src: string): Promise<HTMLImageElement> {
       return new Promise((resolve, reject) => {
-        const img = new Image()
-        img.src = src
-        img.onload = () => resolve(img)
-        img.onerror = reject
-      })
+        const img = new Image();
+        img.src = src;
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+      });
     },
     pxToMm<T extends number | Vec2>(px: T): T {
       assert(this.currentlyOpenDocument);
       if (px instanceof Vec2) {
         return px.div(this.currentlyOpenDocument.zoom_px_per_mm) as T;
-      }
-      else if (typeof px === "number") {
-        return px / this.currentlyOpenDocument.zoom_px_per_mm as T;
+      } else if (typeof px === "number") {
+        return (px / this.currentlyOpenDocument.zoom_px_per_mm) as T;
       }
       throw new Error();
     },
@@ -617,11 +690,10 @@ export const useStore = defineStore("main", {
       assert(this.currentlyOpenDocument);
       if (mm instanceof Vec2) {
         return mm.mul(this.currentlyOpenDocument.zoom_px_per_mm) as T;
-      }
-      else if (typeof mm === "number") {
-        return mm * this.currentlyOpenDocument.zoom_px_per_mm as T;
+      } else if (typeof mm === "number") {
+        return (mm * this.currentlyOpenDocument.zoom_px_per_mm) as T;
       }
       throw new Error();
-    }
+    },
   },
 });
