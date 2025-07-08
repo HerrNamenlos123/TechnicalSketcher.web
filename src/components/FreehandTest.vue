@@ -25,7 +25,6 @@ import type {
   LineShapeFileFormat,
   ShapesInClipboard,
 } from "@/types";
-import { NonFullScreenPageMode } from "pdf-lib";
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
@@ -1326,7 +1325,7 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
 <template>
   <div
     ref="viewport"
-    class="relative w-full h-full overflow-hidden bg-white"
+    class="relative w-full h-full overflow-hidden"
     :class="{
       'cursor-se-resize': cursorResize,
     }"
@@ -1339,7 +1338,6 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
     @pointerup="pointerUpHandler($event)"
     @wheel="handleWheel"
   >
-    <img class="w-full h-full object-cover" src="/table-tiling-2.jpg" />
     <canvas
       ref="mainCanvas"
       class="absolute pointer-events-none rounded-r-3xl shadow-black shadow-md"

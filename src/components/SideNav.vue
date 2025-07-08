@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import SideNavTreeEntry from "./SideNavTreeEntry.vue";
 import { useStore } from "./store";
-import { onMounted, ref } from "vue";
-import BasicIcon from "./BasicIcon.vue";
-import type { FSFileEntry } from "@/types";
-import Button from "./Button.vue";
+import { computed, onMounted, ref, watch } from "vue";
+import type { FSDirEntry, FSFileEntry } from "@/types";
 import { ColorPicker } from "vue3-colorpicker";
+import {
+  Button,
+  InputText,
+  PanelMenu,
+  Popover,
+  useToast,
+  type PanelMenuExpandedKeys,
+} from "primevue";
+import type { MenuItem } from "primevue/menuitem";
 
 const openVault = async () => {
   await store.initVault();
@@ -18,8 +24,7 @@ onMounted(() => {
 
 const store = useStore();
 
-const createDocumentPopup = ref(false);
-const createFilepath = ref("");
+const createFilename = ref("");
 
 const openFile = async (file: FSFileEntry) => {
   await store.loadAndOpenDocument(file);
@@ -36,7 +41,7 @@ const openFile = async (file: FSFileEntry) => {
 // };
 // a();
 
-const exportDone = ref(false);
+const toast = useToast();
 
 const exportDoc = async (entry: FSFileEntry) => {
   const doc = store.openDocuments.find(
@@ -44,10 +49,12 @@ const exportDoc = async (entry: FSFileEntry) => {
   );
   if (doc) {
     await store.exportDocumentAsPdf(doc);
-    exportDone.value = true;
-    setTimeout(() => {
-      exportDone.value = false;
-    }, 1000);
+    toast.add({
+      severity: "success",
+      summary: "Success",
+      detail: "Your PDF File was successfully exported",
+      life: 3000,
+    });
   }
 };
 
@@ -62,66 +69,134 @@ const setPageHeight = (y: number) => {
   store.currentlyOpenDocument.size_mm.y = y;
   store.triggerRender = true;
 };
+
+const menuItems = computed<MenuItem[]>(() => {
+  if (!store.vault) return [];
+
+  const process = (f: FSFileEntry | FSDirEntry): MenuItem => {
+    if (f.type === "file") {
+      return {
+        label: f.filename.replace(/\.tsk$/i, ""),
+        key: f.fullPath,
+        icon: "pi pi-file",
+        command: () => openFile(f),
+      };
+    } else {
+      return {
+        label: f.dirname.replace(/\.tsk$/i, ""),
+        key: f.fullPath,
+        items: [
+          ...f.children.map((f) => process(f)),
+          {
+            label: "Create new file",
+            key: "create-new-file",
+            icon: "pi pi-plus",
+            command: (event) => {
+              create(event.originalEvent);
+            },
+          },
+        ],
+        icon: "pi pi-folder",
+      };
+    }
+  };
+
+  return [
+    {
+      label: "Files",
+      key: "root",
+      icon: "pi pi-file",
+      items: [
+        ...store.vault.filetree.map((f) => process(f)),
+        {
+          label: "Create new file",
+          key: "create-new-file",
+          icon: "pi pi-plus",
+          command: (event) => {
+            create(event.originalEvent);
+          },
+        },
+      ],
+    },
+  ];
+});
+
+const expanded = ref<PanelMenuExpandedKeys>({});
+
+watch(
+  expanded,
+  () => {
+    expanded.value.root = true;
+  },
+  { deep: true, immediate: true },
+);
+
+const fileCreateInputRef = ref<InstanceType<typeof InputText>>();
+
+const op = ref();
+const create = (event: Event) => {
+  createFilename.value = "";
+  op.value.toggle(event);
+};
+
+const pdfLoading = ref(false);
 </script>
 
 <template>
-  <div
-    class="w-64 bg-background border-r border-white border-opacity-20 text-white overflow-y-auto"
-  >
+  <div class="flex flex-col">
+    <Popover ref="op">
+      <div class="flex flex-col w-[25rem]">
+        <span class="font-medium text-lg">Filename</span>
+        <InputText
+          ref="fileCreateInputRef"
+          v-model="createFilename"
+          placeholder="Filename"
+          type="text"
+          autofocus
+        />
+        <div class="flex w-full justify-start pt-2">
+          <Button
+            label="Create"
+            @click="
+              async (e) => {
+                await store.createDocument(createFilename);
+                op.toggle(e);
+              }
+            "
+          />
+        </div>
+      </div>
+    </Popover>
     <div class="h-fit">
       <template v-if="store.vault">
-        <SideNavTreeEntry
-          v-for="(entry, i) in store.vault.filetree"
-          :key="i"
-          :entry="entry"
-          @open-file="openFile"
+        <PanelMenu
+          v-model:expanded-keys="expanded"
+          style="height: 100%"
+          :model="menuItems"
+          multiple
         />
       </template>
       <template v-else>
-        <div
-          class="border p-1 text-white text-xl rounded-lg cursor-pointer"
-          @click="openVault"
-        >
-          Open Vault
-        </div>
+        <Button label="Open Vault" @click="openVault" />
       </template>
-      <div class="w-full flex justify-center mt-4 text-xl relative">
-        <div
-          class="p-1 border rounded-md cursor-pointer"
-          @click="
-            createDocumentPopup = true;
-            createFilepath = '';
-          "
-        >
-          <BasicIcon icon="PhPlus" />
-        </div>
-        <div
-          v-if="createDocumentPopup"
-          class="absolute top-0 left-0 z-50 bg-background border w-[400px] p-2 gap-2 flex flex-col"
-        >
-          <div class="">Filepath</div>
-          <input v-model="createFilepath" class="bg-black" />
-          <div class="flex gap-4">
-            <Button
-              text="Create"
-              @click="
-                store.createDocument(createFilepath);
-                createDocumentPopup = false;
-              "
-            />
-            <Button text="Cancel" @click="createDocumentPopup = false" />
-          </div>
-        </div>
-      </div>
 
       <div
         v-if="store.currentlyOpenDocument?.fileHandle !== undefined"
-        class="w-full flex justify-center mt-4 text-xl relative"
+        class="w-full flex justify-center mt-2"
       >
         <Button
-          :icon="(!exportDone && 'PhFilePdf') || undefined"
-          :text="!exportDone ? 'Export PDF' : 'Done'"
-          @click="exportDoc(store.currentlyOpenDocument.fileHandle)"
+          icon="pi pi-file-pdf"
+          label="Export PDF"
+          :loading="pdfLoading"
+          @click="
+            async () => {
+              if (store.currentlyOpenDocument?.fileHandle) {
+                pdfLoading = true;
+                await exportDoc(store.currentlyOpenDocument.fileHandle);
+                pdfLoading = false;
+              }
+            }
+          "
         />
       </div>
 

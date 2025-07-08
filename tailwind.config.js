@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+import PrimeUI from 'tailwindcss-primeui';
+
 export default {
   content: ["./index.html", "./src/**/*.{vue,js,ts,jsx,tsx}"],
   theme: {
@@ -6,13 +8,7 @@ export default {
       sans: ["Inter", "sans-serif"],
     },
     extend: {
-      colors: {
-        background: "#1E201E",
-        text: "#FFFFFF",
-        button: "#3C3D37",
-        accent: "#e08311",
-      },
     },
   },
-  plugins: [],
+  plugins: [PrimeUI]
 };

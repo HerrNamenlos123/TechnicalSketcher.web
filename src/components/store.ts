@@ -106,6 +106,7 @@ export function combineBBox(a: BBox, b: BBox): BBox {
 export const useStore = defineStore("main", {
   state: () => ({
     vault: undefined as VaultFS | undefined,
+    leftSidebarVisible: true,
     openDocuments: [] as Document[],
     currentlyOpenDocument: undefined as Document | undefined,
     penSizeMm: 0.3,
@@ -183,6 +184,8 @@ export const useStore = defineStore("main", {
             children.sort((a, b) => {
               const nameA = a.handle.name;
               const nameB = b.handle.name;
+              if (a.type === "directory") return -1;
+              if (b.type === "directory") return 1;
               return nameA.localeCompare(nameB);
             });
             if (children.length > 0) {
@@ -203,6 +206,13 @@ export const useStore = defineStore("main", {
         filetree: await processEntries(rootHandle, ""),
         rootHandle: rootHandle,
       };
+      fs.filetree.sort((a, b) => {
+        const nameA = a.handle.name;
+        const nameB = b.handle.name;
+        if (a.type === "directory") return -1;
+        if (b.type === "directory") return 1;
+        return nameA.localeCompare(nameB);
+      });
       return fs;
     },
     async loadVault() {
@@ -226,7 +236,7 @@ export const useStore = defineStore("main", {
             if (
               dirHandle &&
               (await dirHandle.queryPermission({ mode: "readwrite" })) ===
-                "granted"
+              "granted"
             ) {
               useStore().vault = await this.readVault(dirHandle);
             }
@@ -427,6 +437,22 @@ export const useStore = defineStore("main", {
       await writable.write(JSON.stringify(output));
       await writable.close();
     },
+    async fileExists(root: FileSystemDirectoryHandle, path: string): Promise<boolean> {
+      const parts = path.split("/").filter(Boolean);
+      const filename = parts.pop()!;
+      let dir = root;
+
+      try {
+        for (const part of parts) {
+          dir = await dir.getDirectoryHandle(part, { create: false });
+        }
+
+        await dir.getFileHandle(filename, { create: false });
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
     async getOrCreateFile(root: FileSystemDirectoryHandle, path: string) {
       const parts = path.split("/").filter(Boolean);
       const filename = parts.pop()!;
@@ -443,10 +469,31 @@ export const useStore = defineStore("main", {
         return;
       }
 
+      if (path.length === 0) {
+        return;
+      }
+
+      if (!path.endsWith(".tsk")) {
+        path += ".tsk";
+      }
+
+      const fileExisted = await this.fileExists(this.vault.rootHandle, path);
+
       const filehandle = await this.getOrCreateFile(
         this.vault.rootHandle,
         path,
       );
+      const handle: FSFileEntry = {
+        handle: filehandle,
+        filename: path.split("/").pop()!,
+        type: "file",
+        fullPath: path,
+      };
+
+      if (fileExisted) {
+        this.loadAndOpenDocument(handle);
+        return;
+      }
 
       const doc: Document = {
         gridColor: DEFAULT_GRID_COLOR,
@@ -464,15 +511,11 @@ export const useStore = defineStore("main", {
         size_mm: DEFAULT_PAGE_SIZE,
         currentPageIndex: 0,
       };
-      doc.fileHandle = {
-        handle: filehandle,
-        filename: path.split("/").pop()!,
-        type: "file",
-        fullPath: path,
-      };
+      doc.fileHandle = handle;
 
-      this.saveDocument(doc);
-      this.loadVault();
+      await this.saveDocument(doc);
+      await this.loadVault();
+      await this.loadAndOpenDocument(handle);
     },
     getPath(penSize: number, points: Point[], mode: "fast" | "accurate") {
       const scaledPoints = points.map((p) => ({
@@ -575,6 +618,7 @@ export const useStore = defineStore("main", {
               c.charCodeAt(0),
             );
             const image = await pdfDoc.embedPng(byteArray);
+            console.log(shape)
             pdfPage.drawImage(image, {
               x: shape.position.x,
               y: pdfPage.getHeight() - shape.size.y - shape.position.y,

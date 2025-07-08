@@ -28,6 +28,7 @@ module.exports = {
       {
         args: "all",
         varsIgnorePattern: "^(_.*|props|emit)$",
+        argsIgnorePattern: "^(_.*)$",
         caughtErrors: "all",
         destructuredArrayIgnorePattern: "^_",
       },
@@ -122,6 +123,12 @@ module.exports = {
     "local-rules/no-force-update": "error",
     // "local-rules/no-get-element-by-id": "error",
     "local-rules/use-await-nexttick": "warn",
+    "vue/no-undef-components": [
+      "error",
+      {
+        ignorePatterns: [],
+      },
+    ],
   },
   globals: {
     _APP_NAME: "readonly",

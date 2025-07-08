@@ -63,7 +63,7 @@ export function getCtx(canvas: HTMLCanvasElement | undefined) {
 export const DEFAULT_GRID_COLOR = "#5252524f";
 export const DEFAULT_PAGE_COLOR = "#ffffff";
 export const DEFAULT_ZOOM_PX_PER_MM = 5;
-export const DEFAULT_PAGE_SIZE = new Vec2(148, 210);
+export const DEFAULT_PAGE_SIZE = new Vec2(210, 297);
 export const DEFAULT_DOCUMENT_OFFSET = new Vec2(200, 10);
 
 export type Document = {

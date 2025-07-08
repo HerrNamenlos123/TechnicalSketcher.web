@@ -2,9 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-}
+:root {}
 
-html, body {
+html,
+body {
   touch-action: none;
+  font-size: 12px;
 }
