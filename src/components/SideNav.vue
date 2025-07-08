@@ -25,6 +25,7 @@ onMounted(() => {
 const store = useStore();
 
 const createFilename = ref("");
+const createFilenamePrefix = ref("");
 
 const openFile = async (file: FSFileEntry) => {
   await store.loadAndOpenDocument(file);
@@ -92,7 +93,7 @@ const menuItems = computed<MenuItem[]>(() => {
             key: "create-new-file",
             icon: "pi pi-plus",
             command: (event) => {
-              create(event.originalEvent);
+              create(event.originalEvent, f.fullPath);
             },
           },
         ],
@@ -113,7 +114,7 @@ const menuItems = computed<MenuItem[]>(() => {
           key: "create-new-file",
           icon: "pi pi-plus",
           command: (event) => {
-            create(event.originalEvent);
+            create(event.originalEvent, "");
           },
         },
       ],
@@ -134,8 +135,9 @@ watch(
 const fileCreateInputRef = ref<InstanceType<typeof InputText>>();
 
 const op = ref();
-const create = (event: Event) => {
+const create = (event: Event, prefixPath: string) => {
   createFilename.value = "";
+  createFilenamePrefix.value = prefixPath;
   op.value.toggle(event);
 };
 
@@ -159,7 +161,9 @@ const pdfLoading = ref(false);
             label="Create"
             @click="
               async (e) => {
-                await store.createDocument(createFilename);
+                await store.createDocument(
+                  createFilenamePrefix + createFilename,
+                );
                 op.toggle(e);
               }
             "
