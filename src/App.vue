@@ -2,14 +2,7 @@
 import FreehandTest from "./components/FreehandTest.vue";
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useStore } from "./components/store";
-import {
-  Button,
-  Dock,
-  Popover,
-  Splitter,
-  SplitterPanel,
-  Toast,
-} from "primevue";
+import { Button, Dock, Splitter, SplitterPanel, Toast } from "primevue";
 import SideNav from "./components/SideNav.vue";
 import type { MenuItem } from "primevue/menuitem";
 
