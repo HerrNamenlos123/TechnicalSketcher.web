@@ -8,6 +8,7 @@ import {
   InputText,
   PanelMenu,
   Popover,
+  Tree,
   useToast,
   type PanelMenuExpandedKeys,
 } from "primevue";
@@ -74,6 +75,13 @@ const setPageHeight = (y: number) => {
 const menuItems = computed<MenuItem[]>(() => {
   if (!store.vault) return [];
 
+  const sub = [];
+  for (let i = 0; i < 1000; i++) {
+    sub.push({
+      label: "test",
+    });
+  }
+
   const process = (f: FSFileEntry | FSDirEntry): MenuItem => {
     if (f.type === "file") {
       return {
@@ -83,10 +91,10 @@ const menuItems = computed<MenuItem[]>(() => {
         command: () => openFile(f),
       };
     } else {
-      return {
-        label: f.dirname.replace(/\.tsk$/i, ""),
-        key: f.fullPath,
-        items: [
+      let children: MenuItem[] = [{}];
+
+      if (expanded.value[f.fullPath]) {
+        children = [
           ...f.children.map((f) => process(f)),
           {
             label: "Create new file",
@@ -96,13 +104,19 @@ const menuItems = computed<MenuItem[]>(() => {
               create(event.originalEvent, f.fullPath);
             },
           },
-        ],
+        ];
+      }
+
+      return {
+        label: f.dirname.replace(/\.tsk$/i, ""),
+        key: f.fullPath,
+        items: children,
         icon: "pi pi-folder",
       };
     }
   };
 
-  return [
+  const result: MenuItem[] = [
     {
       label: "Files",
       key: "root",
@@ -120,6 +134,7 @@ const menuItems = computed<MenuItem[]>(() => {
       ],
     },
   ];
+  return result;
 });
 
 const expanded = ref<PanelMenuExpandedKeys>({});
