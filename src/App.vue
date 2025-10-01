@@ -5,6 +5,7 @@ import { useStore } from "./components/store";
 import { Button, Dock, Splitter, SplitterPanel, Toast } from "primevue";
 import SideNav from "./components/SideNav.vue";
 import type { MenuItem } from "primevue/menuitem";
+import { useRoute } from "vue-router";
 
 const store = useStore();
 
@@ -13,6 +14,25 @@ const keydown = (e: KeyboardEvent) => {
     e.preventDefault();
   }
 };
+
+const route = useRoute();
+
+watch(
+  [() => route?.query, () => store.vault],
+  () => {
+    if (!store.vault) return;
+    const file = route?.query?.file;
+    if (file && !Array.isArray(file)) {
+      store.loadAndOpenDocumentFromPathOptimisticMatch(file);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const url = new URL(window.location as any); // current URL
+      url.searchParams.delete("file"); // remove the param
+      window.history.replaceState({}, "", url);
+    }
+  },
+  { immediate: true, deep: true },
+);
 
 onMounted(async () => {
   window.addEventListener("keydown", keydown);

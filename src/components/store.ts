@@ -33,10 +33,7 @@ import { nextTick } from "vue";
 
 export const RESIZE_HANDLE_SIZE = 8;
 
-export function assert<T>(
-  value: T | null | undefined,
-  message?: string,
-): asserts value is T {
+export function assert<T>(value: T | null | undefined, message?: string): asserts value is T {
   if (!value) throw new Error(message ?? "Assertion failed");
 }
 
@@ -50,12 +47,7 @@ export function loadImageAsync(src: string): Promise<HTMLImageElement> {
 }
 
 export function isPointInBBox(bbox: BBox, point: Vec2) {
-  return (
-    point.x >= bbox.left &&
-    point.x <= bbox.right &&
-    point.y >= bbox.top &&
-    point.y <= bbox.bottom
-  );
+  return point.x >= bbox.left && point.x <= bbox.right && point.y >= bbox.top && point.y <= bbox.bottom;
 }
 
 export function updateShapeBBox(shape: Shape) {
@@ -156,7 +148,7 @@ export const useStore = defineStore("main", {
     async readVault(rootHandle: FileSystemDirectoryHandle): Promise<VaultFS> {
       const processEntries = async (
         dirHandle: FileSystemDirectoryHandle,
-        parentPath: string,
+        parentPath: string
       ): Promise<(FSFileEntry | FSDirEntry)[]> => {
         const entries: (FSFileEntry | FSDirEntry)[] = [];
         for await (const [name, handle] of dirHandle.entries()) {
@@ -177,10 +169,7 @@ export const useStore = defineStore("main", {
               });
             }
           } else if (handle.kind === "directory") {
-            const children = await processEntries(
-              handle,
-              parentPath + name + "/",
-            );
+            const children = await processEntries(handle, parentPath + name + "/");
             children.sort((a, b) => {
               const nameA = a.handle.name;
               const nameB = b.handle.name;
@@ -215,6 +204,32 @@ export const useStore = defineStore("main", {
       });
       return fs;
     },
+    async findFileOptimisticMatch(fullPath: string) {
+      const normalizedPath = fullPath.replaceAll("\\", "/");
+      const process = (entry: FSFileEntry | FSDirEntry): FSFileEntry | undefined => {
+        if (entry.type === "directory") {
+          for (const f of entry.children) {
+            const result = process(f);
+            if (result) {
+              return result;
+            }
+          }
+        } else {
+          if (normalizedPath.includes(entry.fullPath)) {
+            return entry;
+          }
+        }
+      };
+
+      if (this.vault) {
+        for (const f of this.vault.filetree) {
+          const result = process(f);
+          if (result) {
+            return result;
+          }
+        }
+      }
+    },
     async loadVault() {
       const dbs = await indexedDB.databases();
       const exists = dbs.some((db) => db.name === "vault-db");
@@ -233,11 +248,7 @@ export const useStore = defineStore("main", {
 
           getReq.onsuccess = async () => {
             const dirHandle = getReq.result;
-            if (
-              dirHandle &&
-              (await dirHandle.queryPermission({ mode: "readwrite" })) ===
-              "granted"
-            ) {
+            if (dirHandle && (await dirHandle.queryPermission({ mode: "readwrite" })) === "granted") {
               useStore().vault = await this.readVault(dirHandle);
             }
             resolve();
@@ -282,10 +293,7 @@ export const useStore = defineStore("main", {
                           pressure: point.pressure,
                         })),
                         bbox: { left: 0, right: 0, top: 0, bottom: 0 },
-                        penColor:
-                          typeof s.penColor === "string"
-                            ? s.penColor
-                            : "#000000",
+                        penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
                         penThickness: s.penThickness,
                       } satisfies LineShape;
                       updateShapeBBox(line);
@@ -320,15 +328,15 @@ export const useStore = defineStore("main", {
                     } else {
                       throw new Error();
                     }
-                  }),
+                  })
                 ),
                 previewLine: undefined,
-              }),
-            ),
+              })
+            )
           ),
           size_mm: new Vec2(
             input.data.pageWidthMm ?? DEFAULT_PAGE_SIZE.x,
-            input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y,
+            input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y
           ),
           pageColor: input.data.pageColor,
           gridColor: input.data.gridColor,
@@ -344,6 +352,12 @@ export const useStore = defineStore("main", {
         return undefined;
       }
     },
+    async loadAndOpenDocumentFromPathOptimisticMatch(fullPath: string) {
+      const entry = await this.findFileOptimisticMatch(fullPath);
+      if (entry) {
+        this.loadAndOpenDocument(entry);
+      }
+    },
     async loadAndOpenDocument(filehandle: FSFileEntry) {
       const newDoc = await this.loadDocument(filehandle);
       if (!newDoc) {
@@ -351,10 +365,7 @@ export const useStore = defineStore("main", {
         return;
       }
       for (let i = 0; i < this.openDocuments.length; i++) {
-        if (
-          this.openDocuments[i].fileHandle?.filename ===
-          newDoc?.fileHandle?.filename
-        ) {
+        if (this.openDocuments[i].fileHandle?.filename === newDoc?.fileHandle?.filename) {
           this.openDocuments[i] = newDoc;
           this.currentlyOpenDocument = undefined;
           await nextTick();
@@ -449,7 +460,7 @@ export const useStore = defineStore("main", {
 
         await dir.getFileHandle(filename, { create: false });
         return true;
-      } catch (e) {
+      } catch (_e) {
         return false;
       }
     },
@@ -479,10 +490,7 @@ export const useStore = defineStore("main", {
 
       const fileExisted = await this.fileExists(this.vault.rootHandle, path);
 
-      const filehandle = await this.getOrCreateFile(
-        this.vault.rootHandle,
-        path,
-      );
+      const filehandle = await this.getOrCreateFile(this.vault.rootHandle, path);
       const handle: FSFileEntry = {
         handle: filehandle,
         filename: path.split("/").pop()!,
@@ -597,11 +605,7 @@ export const useStore = defineStore("main", {
 
         for (const shape of page.shapes) {
           if (shape.variant === "Line") {
-            const stroke = this.getPath(
-              shape.penThickness,
-              shape.points,
-              "accurate",
-            );
+            const stroke = this.getPath(shape.penThickness, shape.points, "accurate");
             const d = getSvgPathFromStroke(stroke);
             const { r, g, b, a } = this.parseColor(shape.penColor);
             pdfPage.drawSvgPath(d, {
@@ -610,15 +614,10 @@ export const useStore = defineStore("main", {
             });
           } else if (shape.variant === "Textblock") {
           } else {
-            const base64 = shape.base64ImageData.replace(
-              /^data:image\/\w+;base64,/,
-              "",
-            );
-            const byteArray = Uint8Array.from(atob(base64), (c) =>
-              c.charCodeAt(0),
-            );
+            const base64 = shape.base64ImageData.replace(/^data:image\/\w+;base64,/, "");
+            const byteArray = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
             const image = await pdfDoc.embedPng(byteArray);
-            console.log(shape)
+            console.log(shape);
             pdfPage.drawImage(image, {
               x: shape.position.x,
               y: pdfPage.getHeight() - shape.size.y - shape.position.y,
@@ -638,8 +637,7 @@ export const useStore = defineStore("main", {
         return;
       }
 
-      const replaceExt = (path: string, newExt: string) =>
-        path.replace(/\.[^/.]+$/, "") + newExt;
+      const replaceExt = (path: string, newExt: string) => path.replace(/\.[^/.]+$/, "") + newExt;
 
       const pdfPath = replaceExt(doc.fileHandle.fullPath, ".pdf");
       const handle = await this.getOrCreateFile(this.vault.rootHandle, pdfPath);
@@ -654,9 +652,7 @@ export const useStore = defineStore("main", {
       // If color is in rgba(r,g,b,a) format
       if (colorStr.startsWith("rgba")) {
         // Match rgba numbers
-        const match = colorStr.match(
-          /rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1|0?\.\d+)\s*\)/i,
-        );
+        const match = colorStr.match(/rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1|0?\.\d+)\s*\)/i);
         if (match) {
           return {
             r: parseInt(match[1], 10),

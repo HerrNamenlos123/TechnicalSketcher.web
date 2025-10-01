@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\.tsk]
+@="TechnicalSketcherFile"
+
+[HKEY_CLASSES_ROOT\TechnicalSketcherFile]
+@="TechnicalSketcher File"
+
+[HKEY_CLASSES_ROOT\TechnicalSketcherFile\DefaultIcon]
+@="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe,0"
+
+[HKEY_CLASSES_ROOT\TechnicalSketcherFile\shell]
+
+[HKEY_CLASSES_ROOT\TechnicalSketcherFile\shell\open]
+
+[HKEY_CLASSES_ROOT\TechnicalSketcherFile\shell\open\command]
+@="\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" \"https://herrnamenlos123.github.io/TechnicalSketcher.web/?file=%1\""
