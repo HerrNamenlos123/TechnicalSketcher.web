@@ -547,7 +547,7 @@ export const useStore = defineStore("main", {
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext("2d")!;
+      const ctx = canvas.getContext("2d", { desynchronized: true })!;
       ctx.drawImage(img, 0, 0);
 
       return new Promise((resolve) => {

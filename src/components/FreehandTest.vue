@@ -1333,8 +1333,8 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
     @pointercancel="pointerUpHandler($event)"
     @pointerdown="pointerDownHandler($event)"
     @pointerleave="pointerUpHandler($event)"
-    @pointermove="pointerMoveHandler($event)"
     @pointerover="pointerUpHandler($event)"
+    @pointerrawupdate="pointerMoveHandler($event)"
     @pointerup="pointerUpHandler($event)"
     @wheel="handleWheel"
   >

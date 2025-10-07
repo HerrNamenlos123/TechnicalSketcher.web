@@ -56,7 +56,7 @@ export type Page = {
 
 export function getCtx(canvas: HTMLCanvasElement | undefined) {
   assert(canvas);
-  return canvas.getContext("2d")!;
+  return canvas.getContext("2d", { desynchronized: true })!;
 }
 
 // export const DEFAULT_GRID_COLOR = "#37e6cf98";
