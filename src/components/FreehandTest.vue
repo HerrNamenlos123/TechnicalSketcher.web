@@ -25,7 +25,6 @@ import type {
   LineShapeFileFormat,
   ShapesInClipboard,
 } from "@/types";
-import { NonFullScreenPageMode } from "pdf-lib";
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
@@ -34,7 +33,9 @@ const currentDocument = defineModel<Document>("document", { required: true });
 const explicitSelectionTool = ref(false);
 const textTool = ref(false);
 const selectedShapes = ref<Shape[]>([]);
+const editingTextShape = ref<undefined | TextblockShape>();
 const movedShapes = ref<Shape[]>([]);
+const textArea = ref<undefined | HTMLTextAreaElement | HTMLTextAreaElement[]>();
 
 const colors = [
   "#000000", // Jet Black
@@ -303,23 +304,23 @@ const moveShape = (shape: Shape, delta: Vec2) => {
   shape.bbox.bottom += delta.y;
 };
 
-const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
+const resizeShape = (shape: Shape, origin: Vec2, ratio: Vec2) => {
   if (shape.variant === "Image") {
     const newPos = origin.add(
       new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio),
     );
     shape.position.x = newPos.x;
     shape.position.y = newPos.y;
-    shape.size.x *= ratio;
-    shape.size.y *= ratio;
+    shape.size.x *= ratio.x;
+    shape.size.y *= ratio.y;
   } else if (shape.variant === "Textblock") {
     const newPos = origin.add(
       new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio),
     );
     shape.position.x = newPos.x;
     shape.position.y = newPos.y;
-    shape.size.x *= ratio;
-    shape.size.y *= ratio;
+    shape.size.x *= ratio.x;
+    shape.size.y *= ratio.y;
   } else {
     for (const p of shape.points) {
       const newPos = origin.add(new Vec2(p.x, p.y).sub(origin).mul(ratio));
@@ -343,7 +344,7 @@ class Controls {
 
   isMovingShapes = false;
   resizeOrigin = new Vec2();
-  resizeLastOriginDistance = 0;
+  resizeLastOriginDistance = new Vec2();
   isResizing = false;
   startedSelectionWithStylusButton = false;
 
@@ -352,14 +353,14 @@ class Controls {
   onMouseDown() {
     assert(this.e);
 
+    editingTextShape.value = undefined;
+
     // Start resizing
     if (this.isCursorInResizeHandle()) {
       this.isResizing = true;
       const bbox = this.getCombinedSelectionBBox();
       this.resizeOrigin = new Vec2(bbox.left, bbox.top);
-      this.resizeLastOriginDistance = this.cursorPosMm
-        .sub(this.resizeOrigin)
-        .mag();
+      this.resizeLastOriginDistance = this.cursorPosMm.sub(this.resizeOrigin);
       movedShapes.value = [...selectedShapes.value];
       selectionPathPx.value = undefined;
       return;
@@ -398,20 +399,48 @@ class Controls {
     // }
   }
 
+  resizeSelectedShapes(ratio: Vec2) {
+    assert(this.e);
+    for (const shape of selectedShapes.value) {
+      const uniformRatio = (ratio.x + ratio.y) / 2;
+      let uniform = true;
+
+      // Ctrl key enables non-uniform resize (except for text)
+
+      if (shape.variant === "Line" || shape.variant === "Image") {
+        uniform = !this.e.ctrlKey;
+      } else if (shape.variant === "Textblock") {
+        uniform = this.e.ctrlKey;
+      } else {
+        throw new Error();
+      }
+
+      if (uniform) {
+        resizeShape(
+          shape,
+          this.resizeOrigin,
+          new Vec2(uniformRatio, uniformRatio),
+        );
+      } else {
+        resizeShape(shape, this.resizeOrigin, ratio);
+      }
+
+      // Shift scales line width
+      if (this.e.shiftKey) {
+        if (shape.variant === "Line") {
+          shape.penThickness *= uniformRatio;
+        }
+      }
+    }
+  }
+
   onMouseDrag() {
     assert(this.e);
 
     if (this.isResizing) {
-      const distToOrigin = this.cursorPosMm.sub(this.resizeOrigin).mag();
-      const ratio = distToOrigin / this.resizeLastOriginDistance;
-      for (const shape of selectedShapes.value) {
-        resizeShape(shape, this.resizeOrigin, ratio);
-        if (this.e.ctrlKey || this.e.shiftKey) {
-          if (shape.variant === "Line") {
-            shape.penThickness *= ratio;
-          }
-        }
-      }
+      const distToOrigin = this.cursorPosMm.sub(this.resizeOrigin);
+      const ratio = distToOrigin.div(this.resizeLastOriginDistance);
+      this.resizeSelectedShapes(ratio);
       this.resizeLastOriginDistance = distToOrigin;
       return;
     }
@@ -484,6 +513,22 @@ class Controls {
 
   onMouseUp() {
     assert(this.e);
+
+    for (const shape of selectedShapes.value) {
+      if (shape.variant === "Textblock") {
+        // Edit this text
+        editingTextShape.value = shape;
+        nextTick(() => {
+          if (textArea.value !== undefined) {
+            const area = Array.isArray(textArea.value)
+              ? textArea.value[0]
+              : textArea.value;
+            area.focus();
+          }
+        });
+        return;
+      }
+    }
 
     eraserPosPx.value = undefined;
     this.isMovingShapes = false;
@@ -586,14 +631,14 @@ class Controls {
   onPenDown() {
     assert(this.e);
 
+    editingTextShape.value = undefined;
+
     // Start resizing
     if (this.isCursorInResizeHandle()) {
       this.isResizing = true;
       const bbox = this.getCombinedSelectionBBox();
       this.resizeOrigin = new Vec2(bbox.left, bbox.top);
-      this.resizeLastOriginDistance = this.cursorPosMm
-        .sub(this.resizeOrigin)
-        .mag();
+      this.resizeLastOriginDistance = this.cursorPosMm.sub(this.resizeOrigin);
       movedShapes.value = [...selectedShapes.value];
       selectionPathPx.value = undefined;
       return;
@@ -696,16 +741,9 @@ class Controls {
     assert(this.e);
 
     if (this.isResizing) {
-      const distToOrigin = this.cursorPosMm.sub(this.resizeOrigin).mag();
-      const ratio = distToOrigin / this.resizeLastOriginDistance;
-      for (const shape of selectedShapes.value) {
-        resizeShape(shape, this.resizeOrigin, ratio);
-        if (this.e.ctrlKey || this.e.shiftKey) {
-          if (shape.variant === "Line") {
-            shape.penThickness *= ratio;
-          }
-        }
-      }
+      const distToOrigin = this.cursorPosMm.sub(this.resizeOrigin);
+      const ratio = distToOrigin.div(this.resizeLastOriginDistance);
+      this.resizeSelectedShapes(ratio);
       this.resizeLastOriginDistance = distToOrigin;
       return;
     }
@@ -1358,7 +1396,29 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
       }"
     />
     <template v-for="textblock in textShapes" :key="textblock">
+      <div
+        v-if="editingTextShape !== textblock"
+        class="absolute pointer-events-none"
+        :style="{
+          left:
+            currentDocument.offset.x +
+            textblock.position.x * currentDocument.zoom_px_per_mm +
+            'px',
+          top:
+            currentDocument.offset.y +
+            textblock.position.y * currentDocument.zoom_px_per_mm +
+            'px',
+          width: textblock.size.x * currentDocument.zoom_px_per_mm + 'px',
+          height: textblock.size.y * currentDocument.zoom_px_per_mm + 'px',
+          resize: 'none',
+          background: 'transparent',
+        }"
+      >
+        {{ textblock.rawText }}
+      </div>
       <textarea
+        v-else
+        ref="textArea"
         v-model="textblock.rawText"
         class="absolute"
         :style="{
@@ -1375,6 +1435,13 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
           resize: 'none',
           background: 'transparent',
         }"
+        @mousedown.stop
+        @pointercancel.stop
+        @pointerdown.stop
+        @pointerleave.stop
+        @pointermove.stop
+        @pointerover.stop
+        @pointerup.stop
       />
     </template>
     <div
