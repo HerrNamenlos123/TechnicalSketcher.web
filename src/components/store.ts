@@ -108,15 +108,18 @@ export async function makeVaultIndexAvailable() {
   if (!store.currentVaultIndexFile) {
     let vaultIndexFile = await store.findFileOptimisticMatch(vaultIndexFilePath);
     if (!vaultIndexFile) {
+      const exists = await store.fileExists(store.vault.rootHandle, vaultIndexFilePath);
       const filehandle = await store.getOrCreateFile(store.vault.rootHandle, vaultIndexFilePath);
 
-      const writable = await filehandle.createWritable();
-      await writable.write(
-        JSON.stringify({
-          lastOpened: null,
-        } satisfies VaultIndexFile)
-      );
-      await writable.close();
+      if (!exists) {
+        const writable = await filehandle.createWritable();
+        await writable.write(
+          JSON.stringify({
+            lastOpened: null,
+          } satisfies VaultIndexFile)
+        );
+        await writable.close();
+      }
 
       vaultIndexFile = {
         filename: "vault.json",
@@ -136,9 +139,6 @@ export async function makeVaultIndexAvailable() {
 
 export const vaultIndex = computed({
   get: (): VaultIndexFile | undefined => {
-    // This is async but not awaited, it will load the document in the background and then
-    // the reactivity system will trigger any reactive state
-    makeVaultIndexAvailable();
     return useStore().currentVaultIndex;
   },
   set: async (value?: VaultIndexFile) => {
@@ -216,10 +216,13 @@ export const useStore = defineStore("tsk-main", {
         for await (const [name, handle] of dirHandle.entries()) {
           if (handle.kind === "file") {
             let skip = false;
-            if (name.includes(".crswap")) {
-              skip = true;
-            }
-            if (name.includes(".pdf")) {
+            // if (name.includes(".crswap")) {
+            //   skip = true;
+            // }
+            // if (name.includes(".pdf")) {
+            //   skip = true;
+            // }
+            if (!name.includes(".tsk")) {
               skip = true;
             }
             if (!skip) {
@@ -691,7 +694,6 @@ export const useStore = defineStore("tsk-main", {
             const base64 = shape.base64ImageData.replace(/^data:image\/\w+;base64,/, "");
             const byteArray = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
             const image = await pdfDoc.embedPng(byteArray);
-            console.log(shape);
             pdfPage.drawImage(image, {
               x: shape.position.x,
               y: pdfPage.getHeight() - shape.size.y - shape.position.y,
