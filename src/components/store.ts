@@ -29,7 +29,7 @@ import getStroke from "perfect-freehand";
 // import PaperTexture from "@/assets/paper-texture.jpg";
 // import PaperTextureWhite from "@/assets/paper-texture-white.avif";
 import PaperTextureTiling from "@/assets/paper-texture-tiling.jpg";
-import { nextTick } from "vue";
+import { computed, nextTick } from "vue";
 
 export const RESIZE_HANDLE_SIZE = 8;
 
@@ -95,9 +95,71 @@ export function combineBBox(a: BBox, b: BBox): BBox {
   };
 }
 
-export const useStore = defineStore("main", {
+export type VaultIndexFile = {
+  lastOpened: string | null;
+};
+
+export async function makeVaultIndexAvailable() {
+  const store = useStore();
+  if (!store.vault) return;
+
+  const vaultIndexFilePath = ".technicalsketcher/vault.json";
+
+  if (!store.currentVaultIndexFile) {
+    let vaultIndexFile = await store.findFileOptimisticMatch(vaultIndexFilePath);
+    if (!vaultIndexFile) {
+      const filehandle = await store.getOrCreateFile(store.vault.rootHandle, vaultIndexFilePath);
+
+      const writable = await filehandle.createWritable();
+      await writable.write(
+        JSON.stringify({
+          lastOpened: null,
+        } satisfies VaultIndexFile)
+      );
+      await writable.close();
+
+      vaultIndexFile = {
+        filename: "vault.json",
+        fullPath: vaultIndexFilePath,
+        handle: filehandle,
+        type: "file",
+      };
+    }
+
+    store.currentVaultIndexFile = vaultIndexFile;
+  }
+
+  const file = await store.currentVaultIndexFile.handle.getFile();
+  const content = await file.text();
+  store.currentVaultIndex = JSON.parse(content);
+}
+
+export const vaultIndex = computed({
+  get: (): VaultIndexFile | undefined => {
+    // This is async but not awaited, it will load the document in the background and then
+    // the reactivity system will trigger any reactive state
+    makeVaultIndexAvailable();
+    return useStore().currentVaultIndex;
+  },
+  set: async (value?: VaultIndexFile) => {
+    const store = useStore();
+    if (value) {
+      await makeVaultIndexAvailable();
+      if (store.currentVaultIndexFile) {
+        const writable = await store.currentVaultIndexFile.handle.createWritable();
+        await writable.write(JSON.stringify(value));
+        await writable.close();
+        await makeVaultIndexAvailable();
+      }
+    }
+  },
+});
+
+export const useStore = defineStore("tsk-main", {
   state: () => ({
     vault: undefined as VaultFS | undefined,
+    currentVaultIndex: undefined as VaultIndexFile | undefined,
+    currentVaultIndexFile: undefined as FSFileEntry | undefined,
     leftSidebarVisible: true,
     openDocuments: [] as Document[],
     currentlyOpenDocument: undefined as Document | undefined,
@@ -173,8 +235,8 @@ export const useStore = defineStore("main", {
             children.sort((a, b) => {
               const nameA = a.handle.name;
               const nameB = b.handle.name;
-              if (a.type === "directory") return -1;
-              if (b.type === "directory") return 1;
+              if (a.type === "directory" && b.type !== "directory") return -1;
+              if (b.type === "directory" && a.type !== "directory") return 1;
               return nameA.localeCompare(nameB);
             });
             if (children.length > 0) {
@@ -198,10 +260,11 @@ export const useStore = defineStore("main", {
       fs.filetree.sort((a, b) => {
         const nameA = a.handle.name;
         const nameB = b.handle.name;
-        if (a.type === "directory") return -1;
-        if (b.type === "directory") return 1;
+        if (a.type === "directory" && b.type !== "directory") return -1;
+        if (b.type === "directory" && a.type !== "directory") return 1;
         return nameA.localeCompare(nameB);
       });
+
       return fs;
     },
     async findFileOptimisticMatch(fullPath: string) {
@@ -250,6 +313,7 @@ export const useStore = defineStore("main", {
             const dirHandle = getReq.result;
             if (dirHandle && (await dirHandle.queryPermission({ mode: "readwrite" })) === "granted") {
               useStore().vault = await this.readVault(dirHandle);
+              const _ = vaultIndex.value; // Access to make sure the file gets loaded/created
             }
             resolve();
           };
@@ -383,6 +447,10 @@ export const useStore = defineStore("main", {
       this.currentlyOpenDocument = newDoc;
       this.forceDeepRender = true;
       this.triggerRender = true;
+
+      if (vaultIndex.value) {
+        vaultIndex.value = { ...vaultIndex.value, lastOpened: filehandle.fullPath };
+      }
     },
     async saveDocument(document: Document) {
       const output: TskFileFormat = {

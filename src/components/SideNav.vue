@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useStore } from "./store";
+import { makeVaultIndexAvailable, useStore, vaultIndex } from "./store";
 import { computed, onMounted, ref, watch } from "vue";
 import type { FSDirEntry, FSFileEntry } from "@/types";
 import { ColorPicker } from "vue3-colorpicker";
@@ -20,8 +20,18 @@ const openVault = async () => {
   await store.loadVault();
 };
 
-onMounted(() => {
-  store.loadVault();
+onMounted(async () => {
+  await store.loadVault();
+
+  await makeVaultIndexAvailable();
+  if (vaultIndex.value?.lastOpened) {
+    const file = await store.findFileOptimisticMatch(
+      vaultIndex.value.lastOpened,
+    );
+    if (file) {
+      await openFile(file);
+    }
+  }
 });
 
 const store = useStore();
