@@ -74,12 +74,12 @@ const setPageHeight = (y: number) => {
 const menuItems = computed<MenuItem[]>(() => {
   if (!store.vault) return [];
 
-  const sub = [];
-  for (let i = 0; i < 1000; i++) {
-    sub.push({
-      label: "test",
-    });
-  }
+  // const sub = [];
+  // for (let i = 0; i < 1000; i++) {
+  //   sub.push({
+  //     label: "test",
+  //   });
+  // }
 
   const process = (f: FSFileEntry | FSDirEntry): MenuItem => {
     if (f.type === "file") {

@@ -9,3 +9,9 @@ body {
   touch-action: none;
   font-size: 12px;
 }
+
+/* Panel Menu */
+.p-toggleable-content-enter-active,
+.p-toggleable-content-leave-active {
+  transition: none !important;
+}
