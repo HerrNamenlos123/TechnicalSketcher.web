@@ -231,22 +231,28 @@ export const useStore = defineStore("tsk-main", {
               });
             }
           } else if (handle.kind === "directory") {
-            const children = await processEntries(handle, parentPath + name + "/");
-            children.sort((a, b) => {
-              const nameA = a.handle.name;
-              const nameB = b.handle.name;
-              if (a.type === "directory" && b.type !== "directory") return -1;
-              if (b.type === "directory" && a.type !== "directory") return 1;
-              return nameA.localeCompare(nameB);
-            });
-            if (children.length > 0) {
-              entries.push({
-                type: "directory",
-                dirname: name,
-                handle: handle,
-                fullPath: parentPath + name + "/",
-                children: children,
+            let skip = false;
+            if (name.startsWith(".")) {
+              skip = true;
+            }
+            if (!skip) {
+              const children = await processEntries(handle, parentPath + name + "/");
+              children.sort((a, b) => {
+                const nameA = a.handle.name;
+                const nameB = b.handle.name;
+                if (a.type === "directory" && b.type !== "directory") return -1;
+                if (b.type === "directory" && a.type !== "directory") return 1;
+                return nameA.localeCompare(nameB, "de", { numeric: true });
               });
+              if (children.length > 0) {
+                entries.push({
+                  type: "directory",
+                  dirname: name,
+                  handle: handle,
+                  fullPath: parentPath + name + "/",
+                  children: children,
+                });
+              }
             }
           }
         }
@@ -262,7 +268,7 @@ export const useStore = defineStore("tsk-main", {
         const nameB = b.handle.name;
         if (a.type === "directory" && b.type !== "directory") return -1;
         if (b.type === "directory" && a.type !== "directory") return 1;
-        return nameA.localeCompare(nameB);
+        return nameA.localeCompare(nameB, "de", { numeric: true });
       });
 
       return fs;
