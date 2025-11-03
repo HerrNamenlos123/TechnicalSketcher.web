@@ -12,6 +12,8 @@ import {
   type PanelMenuExpandedKeys,
 } from "primevue";
 import type { MenuItem } from "primevue/menuitem";
+import { defineStore } from "pinia";
+import { useLocalStorage } from "@vueuse/core";
 
 const openVault = async () => {
   await store.initVault();
@@ -92,7 +94,7 @@ const menuItems = computed<MenuItem[]>(() => {
     } else {
       let children: MenuItem[] = [{}];
 
-      if (expanded.value[f.fullPath]) {
+      if (sidenavStore.expandedFolders[f.fullPath]) {
         children = [
           ...f.children.map((f) => process(f)),
           {
@@ -136,12 +138,19 @@ const menuItems = computed<MenuItem[]>(() => {
   return result;
 });
 
-const expanded = ref<PanelMenuExpandedKeys>({});
+const sidenavStore = defineStore("tsk-sidenav", {
+  state: () => ({
+    expandedFolders: useLocalStorage(
+      "tsk-sidenav-expanded-folders",
+      {} as PanelMenuExpandedKeys,
+    ),
+  }),
+})();
 
 watch(
-  expanded,
+  sidenavStore.expandedFolders,
   () => {
-    expanded.value.root = true;
+    sidenavStore.expandedFolders.root = true;
   },
   { deep: true, immediate: true },
 );
@@ -188,7 +197,7 @@ const pdfLoading = ref(false);
     <div class="h-fit">
       <template v-if="store.vault">
         <PanelMenu
-          v-model:expanded-keys="expanded"
+          v-model:expanded-keys="sidenavStore.expandedFolders"
           style="height: 100%"
           :model="menuItems"
           multiple
