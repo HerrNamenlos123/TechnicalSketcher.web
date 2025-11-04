@@ -50,6 +50,7 @@ export type Shape = ImageShape | LineShape | TextblockShape;
 
 export type Page = {
   previewLine?: LineShape;
+  oldPreviewLineLength?: number;
   pageIndex: number;
   shapes: Shape[];
 };

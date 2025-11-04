@@ -24,6 +24,9 @@ export class Renderer {
   private prevPageSizeMm: Vec2 = new Vec2();
   private prevPageZoom: number = 0;
 
+  private isRendering = false;
+  private needsCleanupRender = false;
+
   constructor(
     public doc: Document,
     mainCanvasElement: HTMLCanvasElement
@@ -35,7 +38,14 @@ export class Renderer {
   }
 
   async render() {
+    if (this.isRendering) {
+      this.needsCleanupRender = true;
+      return;
+    }
+
     const store = useStore();
+
+    this.isRendering = true;
 
     // Filter newly inserted shapes, because when a shape is inserted and rendered onto the prerender buffer,
     // we do not need to redraw it entirely, so the check must be skipped. However, when any other shape
@@ -54,6 +64,7 @@ export class Renderer {
 
     if (staticChanged || store.forceDeepRender) {
       await this.preRender();
+      // console.log("Static render");
       // console.log("Static render", staticChanged)
     }
     if (
@@ -66,7 +77,17 @@ export class Renderer {
       store.forceShallowRender
     ) {
       await this.shallowRender();
-      // console.log("dynamic render", dynamicChanged, selectionChanged, eraserChanged, forceShallowRerender, store.forceDeepRender, selectedShapesChanged)
+      // console.log("dynamic render");
+      // console.log(
+      //   "dynamic render",
+      //   dynamicChanged,
+      //   selectionChanged,
+      //   eraserChanged,
+      //   forceShallowRerender,
+      //   store.forceDeepRender,
+      //   selectedShapesChanged,
+      //   store.forceShallowRender
+      // );
     }
     this.prevStaticShapes = [...this.staticShapes];
     this.prevDynamicShapes = [...this.dynamicShapes];
@@ -79,6 +100,14 @@ export class Renderer {
     store.triggerRender = false;
     store.forceDeepRender = false;
     store.forceShallowRender = false;
+
+    this.isRendering = false;
+
+    if (this.needsCleanupRender) {
+      this.needsCleanupRender = false;
+
+      this.render();
+    }
   }
 
   async renderNewShapeToPrerenderer(shape: Shape) {

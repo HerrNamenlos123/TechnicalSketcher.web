@@ -106,6 +106,7 @@ const handleWheel = (e: WheelEvent) => {
     );
   }
   store.forceDeepRender = true;
+  render();
 };
 
 const pointerEvents = ref<PointerEvent[]>([]);
@@ -263,8 +264,15 @@ const render = () => {
   }
 
   if (page.value.previewLine) {
-    store.forceShallowRender = true;
-    renderer.value.dynamicShapes.push(page.value.previewLine);
+    if (
+      page.value.oldPreviewLineLength !== undefined ||
+      page.value.oldPreviewLineLength !== page.value.previewLine.points.length
+    ) {
+      store.forceShallowRender = true;
+      renderer.value.dynamicShapes.push(page.value.previewLine);
+    }
+
+    page.value.oldPreviewLineLength = page.value.previewLine.points.length;
   }
 
   for (const shape of movedShapes.value) {
@@ -273,7 +281,7 @@ const render = () => {
   }
 
   renderer.value.render();
-  requestAnimationFrame(render);
+  // requestAnimationFrame(render);
 };
 
 watch(
@@ -1009,6 +1017,7 @@ const pointerDownHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "pen") {
     controls.value.processPenDown(e);
   }
+  render();
 };
 
 const pointerMoveHandler = (e: PointerEvent) => {
@@ -1028,6 +1037,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "pen") {
     controls.value.processPenMove(e);
   }
+  render();
 };
 
 const pointerUpHandler = (e: PointerEvent) => {
@@ -1045,6 +1055,7 @@ const pointerUpHandler = (e: PointerEvent) => {
   } else if (e.pointerType == "pen") {
     controls.value.processPenUp(e);
   }
+  render();
 };
 
 async function copySelectedShapesToClipboard() {
@@ -1186,6 +1197,7 @@ async function pasteShapes() {
         page.shapes.push(image);
         renderer.value.renderNewShapeToPrerenderer(image);
         selectedShapes.value.push(image);
+        render();
         await store.saveDocument(currentDocument.value);
       } else if (item.types.includes("text/plain")) {
         const blob = await item.getType("text/plain");
@@ -1248,6 +1260,7 @@ async function pasteShapes() {
             selectedShapes.value.push(shape);
           }
 
+          render();
           await store.saveDocument(currentDocument.value);
         }
       }
@@ -1287,6 +1300,7 @@ const keydown = (e: KeyboardEvent) => {
     movedShapes.value = [];
     store.forceDeepRender = true;
     store.saveDocument(currentDocument.value);
+    render();
   }
 };
 
