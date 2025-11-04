@@ -10,6 +10,7 @@ export class Renderer {
 
   staticShapes: Shape[] = [];
   dynamicShapes: Shape[] = [];
+  erasedShapes: Shape[] = [];
   selectedShapes: Shape[] = [];
   selectionPathPx: undefined | Vec2[] = undefined;
   eraserPosPx: Vec2 | undefined = undefined;
@@ -18,6 +19,7 @@ export class Renderer {
 
   private prevStaticShapes: Shape[] = [];
   private prevDynamicShapes: Shape[] = [];
+  private prevErasedShapes: Shape[] = [];
   private prevSelectedShapes: Shape[] = [];
   private prevSelectionPath: undefined | Vec2[] = undefined;
   private prevEraserPos: Vec2 | undefined = undefined;
@@ -54,7 +56,9 @@ export class Renderer {
     const staticWithoutNewlyInserted = this.staticShapes.filter((s) => !this.newlyInsertedShapes.includes(s));
 
     const staticChanged = !isDeeplyEqual(staticWithoutNewlyInserted, this.prevStaticShapes);
-    const dynamicChanged = !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes);
+    const dynamicChanged =
+      !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes) ||
+      !isDeeplyEqual(this.erasedShapes, this.prevErasedShapes);
 
     const selectedShapesChanged = !isDeeplyEqual(this.selectedShapes, this.prevSelectedShapes);
     const selectionChanged = !isDeeplyEqual(this.selectionPathPx, this.prevSelectionPath);
@@ -65,7 +69,7 @@ export class Renderer {
     if (staticChanged || store.forceDeepRender) {
       await this.preRender();
       // console.log("Static render");
-      // console.log("Static render", staticChanged)
+      // console.log("Static render", staticChanged);
     }
     if (
       dynamicChanged ||
@@ -140,6 +144,10 @@ export class Renderer {
 
     for (const shape of this.dynamicShapes) {
       this.mainRenderer.drawShape(shape);
+    }
+
+    for (const shape of this.erasedShapes) {
+      this.mainRenderer.drawShape(shape, true);
     }
 
     if (this.eraserPosPx) {

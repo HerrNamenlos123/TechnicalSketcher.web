@@ -461,6 +461,7 @@ export const useStore = defineStore("tsk-main", {
         vaultIndex.value = { ...vaultIndex.value, lastOpened: filehandle.fullPath };
       }
     },
+    // scheduleDocumentSave(document: Document) {},
     async saveDocument(document: Document) {
       const output: TskFileFormat = {
         filetype: "technicalsketcher",

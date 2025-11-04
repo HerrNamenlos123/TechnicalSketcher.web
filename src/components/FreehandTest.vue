@@ -482,6 +482,7 @@ class Controls {
 
         if (deleteShape) {
           page.value.shapes = page.value.shapes.filter((s) => s !== shape);
+          // store.scheduleDocumentSave(currentDocument.value);
           store.saveDocument(currentDocument.value);
           return;
         }
@@ -775,7 +776,8 @@ class Controls {
         }
 
         if (deleteShape) {
-          page.value.shapes = page.value.shapes.filter((s) => s !== shape);
+          // page.value.shapes = page.value.shapes.filter((s) => s !== shape);
+          renderer.value?.erasedShapes.push(shape);
           store.saveDocument(currentDocument.value);
           return;
         }
@@ -916,6 +918,15 @@ class Controls {
       }
 
       store.saveDocument(currentDocument.value);
+    }
+
+    if (renderer.value) {
+      if (renderer.value.erasedShapes.length > 0) {
+        page.value.shapes = page.value.shapes.filter(
+          (s) => !renderer.value?.erasedShapes.includes(s),
+        );
+        renderer.value.erasedShapes = [];
+      }
     }
   }
 

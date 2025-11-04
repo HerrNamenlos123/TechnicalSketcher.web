@@ -38,10 +38,10 @@ export class RenderLayer {
     this.ctx.drawImage(layer.canvas, 0, 0, this.canvas.width, this.canvas.height);
   }
 
-  drawShape(shape: Shape) {
+  drawShape(shape: Shape, erased = false) {
     switch (shape.variant) {
       case "Line":
-        this.drawLineShape(shape);
+        this.drawLineShape(shape, erased);
         break;
 
       case "Image":
@@ -68,7 +68,7 @@ export class RenderLayer {
     this.ctx.restore();
   }
 
-  drawLineShape(shape: LineShape) {
+  drawLineShape(shape: LineShape, erased = false) {
     const store = useStore();
     const points = [...shape.points];
 
@@ -89,7 +89,11 @@ export class RenderLayer {
     }
 
     this.ctx.closePath();
-    this.ctx.fillStyle = shape.penColor;
+    if (erased) {
+      this.ctx.fillStyle = "#d7d7d7";
+    } else {
+      this.ctx.fillStyle = shape.penColor;
+    }
     this.ctx.fill();
 
     this.ctx.restore();
