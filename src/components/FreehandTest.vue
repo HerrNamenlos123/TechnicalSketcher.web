@@ -779,7 +779,7 @@ class Controls {
           // page.value.shapes = page.value.shapes.filter((s) => s !== shape);
           renderer.value?.erasedShapes.push(shape);
           store.saveDocument(currentDocument.value);
-          return;
+          // return;
         }
       }
     }
