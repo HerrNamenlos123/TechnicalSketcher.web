@@ -775,9 +775,11 @@ class Controls {
           }
         }
 
-        if (deleteShape) {
+        if (deleteShape && renderer.value) {
           // page.value.shapes = page.value.shapes.filter((s) => s !== shape);
-          renderer.value?.erasedShapes.push(shape);
+          if (!renderer.value.erasedShapes.has(shape)) {
+            renderer.value.erasedShapes.add(shape);
+          }
           store.saveDocument(currentDocument.value);
           // return;
         }
@@ -921,11 +923,11 @@ class Controls {
     }
 
     if (renderer.value) {
-      if (renderer.value.erasedShapes.length > 0) {
+      if (renderer.value.erasedShapes.size > 0) {
         page.value.shapes = page.value.shapes.filter(
-          (s) => !renderer.value?.erasedShapes.includes(s),
+          (s) => !renderer.value?.erasedShapes.has(s),
         );
-        renderer.value.erasedShapes = [];
+        renderer.value.erasedShapes = new Set();
       }
     }
   }

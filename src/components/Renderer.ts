@@ -10,7 +10,7 @@ export class Renderer {
 
   staticShapes: Shape[] = [];
   dynamicShapes: Shape[] = [];
-  erasedShapes: Shape[] = [];
+  erasedShapes: Set<Shape> = new Set();
   selectedShapes: Shape[] = [];
   selectionPathPx: undefined | Vec2[] = undefined;
   eraserPosPx: Vec2 | undefined = undefined;
@@ -19,7 +19,7 @@ export class Renderer {
 
   private prevStaticShapes: Shape[] = [];
   private prevDynamicShapes: Shape[] = [];
-  private prevErasedShapes: Shape[] = [];
+  private prevErasedShapes: Set<Shape> = new Set();
   private prevSelectedShapes: Shape[] = [];
   private prevSelectionPath: undefined | Vec2[] = undefined;
   private prevEraserPos: Vec2 | undefined = undefined;
