@@ -20,11 +20,7 @@ import {
   useStore,
 } from "./store";
 import { Renderer } from "./Renderer";
-import type {
-  ImageShapeFileFormat,
-  LineShapeFileFormat,
-  ShapesInClipboard,
-} from "@/types";
+import type { ImageShapeFileFormat, LineShapeFileFormat, ShapesInClipboard } from "@/types";
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
@@ -64,9 +60,7 @@ const viewport = ref<HTMLDivElement>();
 const contextPopupPosPx = ref<undefined | Vec2>();
 const cursorResize = ref(false);
 
-const page = computed(
-  () => currentDocument.value.pages[currentDocument.value.currentPageIndex],
-);
+const page = computed(() => currentDocument.value.pages[currentDocument.value.currentPageIndex]);
 
 const performZoom = (ratio: number, center: Vec2) => {
   if (currentDocument.value.zoom_px_per_mm * ratio > props.maxZoom) {
@@ -81,9 +75,7 @@ const performZoom = (ratio: number, center: Vec2) => {
   currentDocument.value.zoom_px_per_mm *= ratio;
 };
 
-const textShapes = computed(() =>
-  page.value.shapes.filter((s) => s.variant === "Textblock"),
-);
+const textShapes = computed(() => page.value.shapes.filter((s) => s.variant === "Textblock"));
 
 const handleWheel = (e: WheelEvent) => {
   if (!viewport.value || !renderer.value) return;
@@ -97,13 +89,9 @@ const handleWheel = (e: WheelEvent) => {
     );
     performZoom(ratio, center);
   } else if (e.shiftKey) {
-    currentDocument.value.offset = currentDocument.value.offset.add(
-      new Vec2(-e.deltaY, -e.deltaX),
-    );
+    currentDocument.value.offset = currentDocument.value.offset.add(new Vec2(-e.deltaY, -e.deltaX));
   } else {
-    currentDocument.value.offset = currentDocument.value.offset.add(
-      new Vec2(-e.deltaX, -e.deltaY),
-    );
+    currentDocument.value.offset = currentDocument.value.offset.add(new Vec2(-e.deltaX, -e.deltaY));
   }
   store.forceDeepRender = true;
   render();
@@ -134,23 +122,16 @@ const updateZoomingPointers = () => {
   const numberOfFingers = pointerEvents.value.length;
   if (numberOfFingers === 1) {
     currentDocument.value.offset = currentDocument.value.offset.add(
-      new Vec2(
-        pointerEvents.value[0].movementX,
-        pointerEvents.value[0].movementY,
-      ),
+      new Vec2(pointerEvents.value[0].movementX, pointerEvents.value[0].movementY),
     );
   } else if (numberOfFingers === 2) {
     const finger1 = new Vec2(
-      pointerEvents.value[0].clientX -
-        viewport.value.getBoundingClientRect().left,
-      pointerEvents.value[0].clientY -
-        viewport.value.getBoundingClientRect().top,
+      pointerEvents.value[0].clientX - viewport.value.getBoundingClientRect().left,
+      pointerEvents.value[0].clientY - viewport.value.getBoundingClientRect().top,
     );
     const finger2 = new Vec2(
-      pointerEvents.value[1].clientX -
-        viewport.value.getBoundingClientRect().left,
-      pointerEvents.value[1].clientY -
-        viewport.value.getBoundingClientRect().top,
+      pointerEvents.value[1].clientX - viewport.value.getBoundingClientRect().left,
+      pointerEvents.value[1].clientY - viewport.value.getBoundingClientRect().top,
     );
     const center = finger1.add(finger2).div(2);
     const distance = finger2.sub(finger1).mag();
@@ -159,25 +140,18 @@ const updateZoomingPointers = () => {
       isZooming.value = true;
       lastZoomCenter.value = center;
       lastZoomFingerDistance.value = distance;
-      zoomFactorWhenStartingZooming.value =
-        currentDocument.value.zoom_px_per_mm;
+      zoomFactorWhenStartingZooming.value = currentDocument.value.zoom_px_per_mm;
       return;
     }
 
-    currentDocument.value.offset = currentDocument.value.offset.add(
-      center.sub(lastZoomCenter.value),
-    );
+    currentDocument.value.offset = currentDocument.value.offset.add(center.sub(lastZoomCenter.value));
     performZoom(distance / lastZoomFingerDistance.value, center);
     lastZoomFingerDistance.value = distance;
     lastZoomCenter.value = center;
   }
 
   if (numberOfFingers !== 2) {
-    if (
-      isZooming.value &&
-      zoomFactorWhenStartingZooming.value !==
-        currentDocument.value.zoom_px_per_mm
-    ) {
+    if (isZooming.value && zoomFactorWhenStartingZooming.value !== currentDocument.value.zoom_px_per_mm) {
       store.forceDeepRender = true;
     }
     isZooming.value = false;
@@ -192,9 +166,7 @@ function pointInPolygon(point: Vec2, polygon: Vec2[]) {
     const xj = polygon[j].x,
       yj = polygon[j].y;
 
-    const intersect =
-      yi > point.y !== yj > point.y &&
-      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+    const intersect = yi > point.y !== yj > point.y && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
     if (intersect) inside = !inside;
   }
   return inside;
@@ -312,17 +284,13 @@ const moveShape = (shape: Shape, delta: Vec2) => {
 
 const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
   if (shape.variant === "Image") {
-    const newPos = origin.add(
-      new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio),
-    );
+    const newPos = origin.add(new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio));
     shape.position.x = newPos.x;
     shape.position.y = newPos.y;
     shape.size.x *= ratio;
     shape.size.y *= ratio;
   } else if (shape.variant === "Textblock") {
-    const newPos = origin.add(
-      new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio),
-    );
+    const newPos = origin.add(new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio));
     shape.position.x = newPos.x;
     shape.position.y = newPos.y;
     shape.size.x *= ratio;
@@ -364,9 +332,7 @@ class Controls {
       this.isResizing = true;
       const bbox = this.getCombinedSelectionBBox();
       this.resizeOrigin = new Vec2(bbox.left, bbox.top);
-      this.resizeLastOriginDistance = this.cursorPosMm
-        .sub(this.resizeOrigin)
-        .mag();
+      this.resizeLastOriginDistance = this.cursorPosMm.sub(this.resizeOrigin).mag();
       movedShapes.value = [...selectedShapes.value];
       selectionPathPx.value = undefined;
       return;
@@ -439,11 +405,8 @@ class Controls {
     // Erasing
     if (this.eraserButton) {
       for (const shape of page.value.shapes) {
-        const eraserSizeMm =
-          store.eraserSizePx / currentDocument.value.zoom_px_per_mm;
-        eraserPosPx.value = this.cursorPosMm.mul(
-          currentDocument.value.zoom_px_per_mm,
-        );
+        const eraserSizeMm = store.eraserSizePx / currentDocument.value.zoom_px_per_mm;
+        eraserPosPx.value = this.cursorPosMm.mul(currentDocument.value.zoom_px_per_mm);
         const eraserPosMm = this.cursorPosMm;
 
         if (
@@ -465,14 +428,7 @@ class Controls {
             deleteShape = true;
           } else {
             for (let i = 0; i < outlineMm.length - 1; i++) {
-              if (
-                circleOutlineIntersectsLine(
-                  eraserPosMm,
-                  eraserSizeMm / 2,
-                  outlineMm[i],
-                  outlineMm[i + 1],
-                )
-              ) {
+              if (circleOutlineIntersectsLine(eraserPosMm, eraserSizeMm / 2, outlineMm[i], outlineMm[i + 1])) {
                 deleteShape = true;
                 break;
               }
@@ -520,9 +476,7 @@ class Controls {
 
     if (selectionPathPx.value) {
       // Releasing while using selection
-      if (
-        selectionPathPerimeterLength.value <= CONTEXT_MENU_PERIMETER_LIMIT_PX
-      ) {
+      if (selectionPathPerimeterLength.value <= CONTEXT_MENU_PERIMETER_LIMIT_PX) {
         // Has not moved while selecting
         selectShapeUnderCursor(page.value, this.cursorPosMm);
         selectionPathPx.value = undefined;
@@ -537,9 +491,7 @@ class Controls {
             for (const point of shape.points) {
               if (
                 !pointInPolygon(
-                  new Vec2(point.x, point.y).mul(
-                    currentDocument.value.zoom_px_per_mm,
-                  ),
+                  new Vec2(point.x, point.y).mul(currentDocument.value.zoom_px_per_mm),
                   selectionPathPx.value,
                 )
               ) {
@@ -549,35 +501,14 @@ class Controls {
             }
           } else {
             const topLeft = new Vec2(shape.position.x, shape.position.y);
-            const topRight = new Vec2(
-              shape.position.x + shape.size.x,
-              shape.position.y,
-            );
-            const bottomRight = new Vec2(
-              shape.position.x + shape.size.x,
-              shape.position.y + shape.size.y,
-            );
-            const bottomLeft = new Vec2(
-              shape.position.x,
-              shape.position.y + shape.size.y,
-            );
+            const topRight = new Vec2(shape.position.x + shape.size.x, shape.position.y);
+            const bottomRight = new Vec2(shape.position.x + shape.size.x, shape.position.y + shape.size.y);
+            const bottomLeft = new Vec2(shape.position.x, shape.position.y + shape.size.y);
             if (
-              !pointInPolygon(
-                topLeft.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              ) ||
-              !pointInPolygon(
-                topRight.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              ) ||
-              !pointInPolygon(
-                bottomRight.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              ) ||
-              !pointInPolygon(
-                bottomLeft.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              )
+              !pointInPolygon(topLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
+              !pointInPolygon(topRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
+              !pointInPolygon(bottomRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
+              !pointInPolygon(bottomLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value)
             ) {
               skip = true;
             }
@@ -599,9 +530,7 @@ class Controls {
       this.isResizing = true;
       const bbox = this.getCombinedSelectionBBox();
       this.resizeOrigin = new Vec2(bbox.left, bbox.top);
-      this.resizeLastOriginDistance = this.cursorPosMm
-        .sub(this.resizeOrigin)
-        .mag();
+      this.resizeLastOriginDistance = this.cursorPosMm.sub(this.resizeOrigin).mag();
       movedShapes.value = [...selectedShapes.value];
       selectionPathPx.value = undefined;
       return;
@@ -638,9 +567,7 @@ class Controls {
 
     if (this.eraserButton) {
       page.value.previewLine = undefined;
-      eraserPosPx.value = this.cursorPosMm.mul(
-        currentDocument.value.zoom_px_per_mm,
-      );
+      eraserPosPx.value = this.cursorPosMm.mul(currentDocument.value.zoom_px_per_mm);
       return;
     }
 
@@ -734,11 +661,8 @@ class Controls {
     // Erasing
     if (this.eraserButton) {
       for (const shape of page.value.shapes) {
-        const eraserSizeMm =
-          store.eraserSizePx / currentDocument.value.zoom_px_per_mm;
-        eraserPosPx.value = this.cursorPosMm.mul(
-          currentDocument.value.zoom_px_per_mm,
-        );
+        const eraserSizeMm = store.eraserSizePx / currentDocument.value.zoom_px_per_mm;
+        eraserPosPx.value = this.cursorPosMm.mul(currentDocument.value.zoom_px_per_mm);
         const eraserPosMm = this.cursorPosMm;
 
         if (
@@ -760,14 +684,7 @@ class Controls {
             deleteShape = true;
           } else {
             for (let i = 0; i < outlineMm.length - 1; i++) {
-              if (
-                circleOutlineIntersectsLine(
-                  eraserPosMm,
-                  eraserSizeMm / 2,
-                  outlineMm[i],
-                  outlineMm[i + 1],
-                )
-              ) {
+              if (circleOutlineIntersectsLine(eraserPosMm, eraserSizeMm / 2, outlineMm[i], outlineMm[i + 1])) {
                 deleteShape = true;
                 break;
               }
@@ -809,14 +726,9 @@ class Controls {
 
     if (selectionPathPx.value) {
       // Releasing while using selection
-      if (
-        selectionPathPerimeterLength.value <= CONTEXT_MENU_PERIMETER_LIMIT_PX
-      ) {
+      if (selectionPathPerimeterLength.value <= CONTEXT_MENU_PERIMETER_LIMIT_PX) {
         // Has not moved while selecting
-        if (
-          explicitSelectionTool.value &&
-          !this.startedSelectionWithStylusButton
-        ) {
+        if (explicitSelectionTool.value && !this.startedSelectionWithStylusButton) {
           selectShapeUnderCursor(page.value, this.cursorPosMm);
         } else {
           contextPopupPosPx.value = this.cursorPosPx;
@@ -838,9 +750,7 @@ class Controls {
             for (const point of shape.points) {
               if (
                 !pointInPolygon(
-                  new Vec2(point.x, point.y).mul(
-                    currentDocument.value.zoom_px_per_mm,
-                  ),
+                  new Vec2(point.x, point.y).mul(currentDocument.value.zoom_px_per_mm),
                   selectionPathPx.value,
                 )
               ) {
@@ -850,35 +760,14 @@ class Controls {
             }
           } else {
             const topLeft = new Vec2(shape.position.x, shape.position.y);
-            const topRight = new Vec2(
-              shape.position.x + shape.size.x,
-              shape.position.y,
-            );
-            const bottomRight = new Vec2(
-              shape.position.x + shape.size.x,
-              shape.position.y + shape.size.y,
-            );
-            const bottomLeft = new Vec2(
-              shape.position.x,
-              shape.position.y + shape.size.y,
-            );
+            const topRight = new Vec2(shape.position.x + shape.size.x, shape.position.y);
+            const bottomRight = new Vec2(shape.position.x + shape.size.x, shape.position.y + shape.size.y);
+            const bottomLeft = new Vec2(shape.position.x, shape.position.y + shape.size.y);
             if (
-              !pointInPolygon(
-                topLeft.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              ) ||
-              !pointInPolygon(
-                topRight.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              ) ||
-              !pointInPolygon(
-                bottomRight.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              ) ||
-              !pointInPolygon(
-                bottomLeft.mul(currentDocument.value.zoom_px_per_mm),
-                selectionPathPx.value,
-              )
+              !pointInPolygon(topLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
+              !pointInPolygon(topRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
+              !pointInPolygon(bottomRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
+              !pointInPolygon(bottomLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value)
             ) {
               skip = true;
             }
@@ -924,9 +813,7 @@ class Controls {
 
     if (renderer.value) {
       if (renderer.value.erasedShapes.size > 0) {
-        page.value.shapes = page.value.shapes.filter(
-          (s) => !renderer.value?.erasedShapes.has(s),
-        );
+        page.value.shapes = page.value.shapes.filter((s) => !renderer.value?.erasedShapes.has(s));
         renderer.value.erasedShapes = new Set();
       }
     }
@@ -953,19 +840,13 @@ class Controls {
     this.penDown = (this.e.buttons & 1) !== 0;
 
     const topLeft = new Vec2(
-      mainCanvas.value.getBoundingClientRect().left -
-        viewport.value.getBoundingClientRect().left,
-      mainCanvas.value.getBoundingClientRect().top -
-        viewport.value.getBoundingClientRect().top,
+      mainCanvas.value.getBoundingClientRect().left - viewport.value.getBoundingClientRect().left,
+      mainCanvas.value.getBoundingClientRect().top - viewport.value.getBoundingClientRect().top,
     );
     this.cursorPosPx = new Vec2(this.e.offsetX, this.e.offsetY).sub(topLeft);
-    this.cursorPosMm = this.cursorPosPx.div(
-      currentDocument.value.zoom_px_per_mm,
-    );
+    this.cursorPosMm = this.cursorPosPx.div(currentDocument.value.zoom_px_per_mm);
 
-    this.deltaMm = new Vec2(this.e.movementX, this.e.movementY).div(
-      currentDocument.value.zoom_px_per_mm,
-    );
+    this.deltaMm = new Vec2(this.e.movementX, this.e.movementY).div(currentDocument.value.zoom_px_per_mm);
   }
 
   processPenDown(e: PointerEvent) {
@@ -1040,9 +921,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
   if (e.movementX === 0 && e.movementY === 0) return;
 
   if (e.pointerType == "touch") {
-    const index = pointerEvents.value.findIndex(
-      (cachedEv) => cachedEv.pointerId === e.pointerId,
-    );
+    const index = pointerEvents.value.findIndex((cachedEv) => cachedEv.pointerId === e.pointerId);
     pointerEvents.value[index] = e;
     updateZoomingPointers();
   } else if (e.pointerType == "mouse") {
@@ -1056,9 +935,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
 const pointerUpHandler = (e: PointerEvent) => {
   if (!viewport.value || !mainCanvas.value) return;
   if (e.pointerType == "touch") {
-    const index = pointerEvents.value.findIndex(
-      (cachedEv) => cachedEv.pointerId === e.pointerId,
-    );
+    const index = pointerEvents.value.findIndex((cachedEv) => cachedEv.pointerId === e.pointerId);
     if (index !== -1) {
       pointerEvents.value.splice(index, 1);
     }
@@ -1135,8 +1012,7 @@ async function pasteShapes() {
         const base64 = await blobToBase64(blob);
 
         assert(viewport.value);
-        const page =
-          currentDocument.value.pages[currentDocument.value.currentPageIndex];
+        const page = currentDocument.value.pages[currentDocument.value.currentPageIndex];
         if (typeof base64 !== "string") return;
         const vpBB = viewport.value.getBoundingClientRect();
         const viewportSizePx = new Vec2(vpBB.width, vpBB.height);
@@ -1144,31 +1020,23 @@ async function pasteShapes() {
 
         const img = await loadImageAsync(base64);
 
-        const imageSizePx = new Vec2(img.width, img.height).div(
-          window.devicePixelRatio,
-        );
+        const imageSizePx = new Vec2(img.width, img.height).div(window.devicePixelRatio);
         const imagePositionInVp = viewportSizePx.div(2).sub(imageSizePx.div(2));
         const imagePositionInPagePx = imagePositionInVp.sub(pageTopLeft);
-        const imagePositionInPageMm = imagePositionInPagePx.div(
-          currentDocument.value.zoom_px_per_mm,
-        );
+        const imagePositionInPageMm = imagePositionInPagePx.div(currentDocument.value.zoom_px_per_mm);
 
-        const imageSizeMm = imageSizePx.div(
-          currentDocument.value.zoom_px_per_mm,
-        );
+        const imageSizeMm = imageSizePx.div(currentDocument.value.zoom_px_per_mm);
 
         const marginMm = 5;
 
         if (imageSizeMm.x > currentDocument.value.size_mm.x - marginMm * 2) {
-          const ratio =
-            imageSizeMm.x / (currentDocument.value.size_mm.x - marginMm * 2);
+          const ratio = imageSizeMm.x / (currentDocument.value.size_mm.x - marginMm * 2);
           imageSizeMm.x /= ratio;
           imageSizeMm.y /= ratio;
         }
 
         if (imageSizeMm.y > currentDocument.value.size_mm.y - marginMm * 2) {
-          const ratio =
-            imageSizeMm.y / (currentDocument.value.size_mm.y - marginMm * 2);
+          const ratio = imageSizeMm.y / (currentDocument.value.size_mm.y - marginMm * 2);
           imageSizeMm.x /= ratio;
           imageSizeMm.y /= ratio;
         }
@@ -1179,19 +1047,11 @@ async function pasteShapes() {
         if (imagePositionInPageMm.y < marginMm) {
           imagePositionInPageMm.y = marginMm;
         }
-        if (
-          imagePositionInPageMm.x + imageSizeMm.x >
-          currentDocument.value.size_mm.x - marginMm
-        ) {
-          imagePositionInPageMm.x =
-            currentDocument.value.size_mm.x - marginMm - imageSizeMm.x;
+        if (imagePositionInPageMm.x + imageSizeMm.x > currentDocument.value.size_mm.x - marginMm) {
+          imagePositionInPageMm.x = currentDocument.value.size_mm.x - marginMm - imageSizeMm.x;
         }
-        if (
-          imagePositionInPageMm.y + imageSizeMm.y >
-          currentDocument.value.size_mm.y - marginMm
-        ) {
-          imagePositionInPageMm.y =
-            currentDocument.value.size_mm.y - marginMm - imageSizeMm.y;
+        if (imagePositionInPageMm.y + imageSizeMm.y > currentDocument.value.size_mm.y - marginMm) {
+          imagePositionInPageMm.y = currentDocument.value.size_mm.y - marginMm - imageSizeMm.y;
         }
 
         const image: ImageShape = {
@@ -1304,8 +1164,7 @@ const keydown = (e: KeyboardEvent) => {
   }
 
   if (e.key === "Delete") {
-    const page =
-      currentDocument.value.pages[currentDocument.value.currentPageIndex];
+    const page = currentDocument.value.pages[currentDocument.value.currentPageIndex];
     for (const shape of selectedShapes.value) {
       page.shapes = page.shapes.filter((s) => s !== shape);
     }
@@ -1367,29 +1226,19 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
         backgroundColor: currentDocument.pageColor,
         left: currentDocument.offset.x + 'px',
         top: currentDocument.offset.y + 'px',
-        borderTopRightRadius:
-          (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 +
-          'px',
-        borderBottomRightRadius:
-          (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 +
-          'px',
+        borderTopRightRadius: (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 + 'px',
+        borderBottomRightRadius: (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 + 'px',
         width: getDocumentSizePx(currentDocument).x + 'px',
         height: getDocumentSizePx(currentDocument).y + 'px',
       }"
     />
-    <template v-for="textblock in textShapes" :key="textblock">
+    <template v-for="(textblock, index) in textShapes" :key="index">
       <textarea
         v-model="textblock.rawText"
         class="absolute"
         :style="{
-          left:
-            currentDocument.offset.x +
-            textblock.position.x * currentDocument.zoom_px_per_mm +
-            'px',
-          top:
-            currentDocument.offset.y +
-            textblock.position.y * currentDocument.zoom_px_per_mm +
-            'px',
+          left: currentDocument.offset.x + textblock.position.x * currentDocument.zoom_px_per_mm + 'px',
+          top: currentDocument.offset.y + textblock.position.y * currentDocument.zoom_px_per_mm + 'px',
           width: textblock.size.x * currentDocument.zoom_px_per_mm + 'px',
           height: textblock.size.y * currentDocument.zoom_px_per_mm + 'px',
           resize: 'none',
@@ -1409,13 +1258,8 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
       @blur="contextPopupPosPx = undefined"
       @click="contextPopupPosPx = undefined"
     >
-      <div
-        class="-translate-x-1/2 -translate-y-1/2 w-fit flex flex-col gap-12 items-center"
-      >
-        <div
-          id="penColor"
-          class="flex bg-white p-2 gap-2 w-fit rounded-md border border-black"
-        >
+      <div class="-translate-x-1/2 -translate-y-1/2 w-fit flex flex-col gap-12 items-center">
+        <div id="penColor" class="flex bg-white p-2 gap-2 w-fit rounded-md border border-black">
           <div
             v-for="color in colors"
             :key="color"
@@ -1440,10 +1284,7 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
             />
           </div>
         </div>
-        <div
-          id="penSize"
-          class="flex bg-white w-fit rounded-md border border-black p-1 gap-1"
-        >
+        <div id="penSize" class="flex bg-white w-fit rounded-md border border-black p-1 gap-1">
           <div
             class="cursor-pointer"
             @click.stop.prevent="
@@ -1458,13 +1299,7 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
             @pointermove.stop.prevent
             @pointerup.stop.prevent
           >
-            <svg
-              fill="none"
-              height="30"
-              viewBox="0 0 64 64"
-              width="30"
-              xmlns="http://www.w3.org/2000/svg"
-            >
+            <svg fill="none" height="30" viewBox="0 0 64 64" width="30" xmlns="http://www.w3.org/2000/svg">
               <rect
                 fill="none"
                 height="40"
