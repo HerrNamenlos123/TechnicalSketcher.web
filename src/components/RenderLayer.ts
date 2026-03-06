@@ -4,6 +4,8 @@ import { Vec2 } from "./Vector";
 
 export class RenderLayer {
   public canvas: HTMLCanvasElement;
+  private _ctx: CanvasRenderingContext2D;
+  private originPx: Vec2 = new Vec2();
 
   constructor(
     size: Vec2,
@@ -15,12 +17,13 @@ export class RenderLayer {
     this.canvas = canvasElement || document.createElement("canvas");
     this.canvas.width = size.x * scale;
     this.canvas.height = size.y * scale;
+    const ctx = this.canvas.getContext("2d", { desynchronized: true });
+    assert(ctx);
+    this._ctx = ctx;
   }
 
   get ctx() {
-    const ctx = this.canvas.getContext("2d", { desynchronized: true });
-    assert(ctx);
-    return ctx;
+    return this._ctx;
   }
 
   resizeAndClear(size: Vec2) {
@@ -34,8 +37,28 @@ export class RenderLayer {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
+  setOrigin(originPx: Vec2) {
+    this.originPx = new Vec2(originPx);
+  }
+
+  resetOrigin() {
+    this.originPx = new Vec2();
+  }
+
+  private setCanvasTransformWithOrigin() {
+    const scale = window.devicePixelRatio;
+    this.ctx.setTransform(
+      scale,
+      0,
+      0,
+      scale,
+      -this.originPx.x * scale,
+      -this.originPx.y * scale,
+    );
+  }
+
   drawRenderLayer(layer: RenderLayer) {
-    this.ctx.drawImage(layer.canvas, 0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.drawImage(layer.canvas, 0, 0);
   }
 
   drawShape(shape: Shape, erased = false) {
@@ -52,7 +75,7 @@ export class RenderLayer {
 
   drawImageShape(shape: ImageShape) {
     this.ctx.save();
-    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    this.setCanvasTransformWithOrigin();
     this.ctx.imageSmoothingEnabled = false;
     // this.ctx.imageSmoothingQuality = "high"; // optional: "low", "medium", "high"
     this.ctx.beginPath();
@@ -76,7 +99,7 @@ export class RenderLayer {
     const scalingFactor = this.doc.zoom_px_per_mm;
 
     this.ctx.save();
-    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    this.setCanvasTransformWithOrigin();
     this.ctx.beginPath();
     this.ctx.moveTo(outline[0][0] * scalingFactor, outline[0][1] * scalingFactor);
 
@@ -101,7 +124,7 @@ export class RenderLayer {
 
   drawSelectionBbox(bbox: BBox) {
     this.ctx.save();
-    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    this.setCanvasTransformWithOrigin();
     this.ctx.lineWidth = 1;
     this.ctx.strokeStyle = "#e77b00";
     const posMm = new Vec2(bbox.left, bbox.top);
@@ -114,7 +137,7 @@ export class RenderLayer {
 
   drawResizeHandle(pos: Vec2) {
     this.ctx.save();
-    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    this.setCanvasTransformWithOrigin();
     this.ctx.lineWidth = 1;
     this.ctx.strokeStyle = "black";
     this.ctx.fillStyle = "white";
@@ -137,8 +160,9 @@ export class RenderLayer {
   drawImageCovering(img: HTMLImageElement | ImageBitmap) {
     const iw = img.width;
     const ih = img.height;
-    const cw = this.canvas.width;
-    const ch = this.canvas.height;
+    const pageSizePx = getDocumentSizePx(this.doc);
+    const cw = pageSizePx.x;
+    const ch = pageSizePx.y;
 
     const ir = iw / ih;
     const cr = cw / ch;
@@ -160,12 +184,15 @@ export class RenderLayer {
       sy = (ih - sh) / 2;
     }
 
+    this.ctx.save();
+    this.setCanvasTransformWithOrigin();
     this.ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+    this.ctx.restore();
   }
   drawGrid() {
     const store = useStore();
     this.ctx.save();
-    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    this.setCanvasTransformWithOrigin();
     this.ctx.lineWidth = store.mmToPx(store.gridLineThicknessMm);
     this.ctx.lineCap = "butt";
     this.ctx.strokeStyle = this.doc.gridColor;
@@ -181,7 +208,7 @@ export class RenderLayer {
     if (points.length < 2) return;
 
     this.ctx.save();
-    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    this.setCanvasTransformWithOrigin();
     this.ctx.fillStyle = "rgba(0, 128, 255, 0.1)";
     this.ctx.strokeStyle = "black";
     this.ctx.lineWidth = 1;
@@ -201,7 +228,7 @@ export class RenderLayer {
   }
   drawCircle(center: Vec2, radius: number) {
     this.ctx.save();
-    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    this.setCanvasTransformWithOrigin();
     this.ctx.beginPath();
     this.ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
     this.ctx.fillStyle = "rgba(255, 255, 255, 0.5)";

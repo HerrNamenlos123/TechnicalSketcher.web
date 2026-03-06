@@ -1,12 +1,12 @@
 import { isDeeplyEqual } from "@/deep-equal";
-import { getDocumentSizePx, type Document, type Shape } from "./Document";
-import { RenderLayer } from "./RenderLayer";
-import { assert, combineBBox, useStore } from "./store";
+import type { BBox, Document, Shape } from "./Document";
+import { useStore } from "./store";
+import { TileManager, type ZoomPreviewCache, type ZoomPreviewCacheOptions } from "./TileManager";
 import { Vec2 } from "./Vector";
 
 export class Renderer {
-  mainRenderer: RenderLayer;
-  preRenderer: RenderLayer;
+  tileManager: TileManager;
+  dirtyDynamicOnly = false;
 
   staticShapes: Shape[] = [];
   dynamicShapes: Shape[] = [];
@@ -25,6 +25,7 @@ export class Renderer {
   private prevEraserPos: Vec2 | undefined = undefined;
   private prevPageSizeMm: Vec2 = new Vec2();
   private prevPageZoom: number = 0;
+  private readonly mainCanvasElement: HTMLCanvasElement;
 
   private isRendering = false;
   private needsCleanupRender = false;
@@ -33,10 +34,15 @@ export class Renderer {
     public doc: Document,
     mainCanvasElement: HTMLCanvasElement
   ) {
-    const store = useStore();
-    const size = store.pxToMm(this.pageSize);
-    this.mainRenderer = new RenderLayer(size, doc, true, mainCanvasElement);
-    this.preRenderer = new RenderLayer(size, doc, false);
+    this.mainCanvasElement = mainCanvasElement;
+    this.tileManager = new TileManager(doc, mainCanvasElement);
+  }
+
+  private getViewportSizePx() {
+    const rect = this.mainCanvasElement.getBoundingClientRect();
+    const width = this.mainCanvasElement.clientWidth || rect.width;
+    const height = this.mainCanvasElement.clientHeight || rect.height;
+    return new Vec2(width, height);
   }
 
   async render() {
@@ -49,57 +55,67 @@ export class Renderer {
 
     this.isRendering = true;
 
+    const hasForcedRender = store.forceDeepRender || store.forceShallowRender;
+
     // Filter newly inserted shapes, because when a shape is inserted and rendered onto the prerender buffer,
     // we do not need to redraw it entirely, so the check must be skipped. However, when any other shape
     // changes at the same time as we insert a new one, we still want to redraw. So we can't simply skip the check,
     // we must exclude the new shape from the check.
-    const staticWithoutNewlyInserted = this.staticShapes.filter((s) => !this.newlyInsertedShapes.includes(s));
+    const staticWithoutNewlyInserted = hasForcedRender
+      ? []
+      : this.staticShapes.filter((s) => !this.newlyInsertedShapes.includes(s));
 
-    const staticChanged = !isDeeplyEqual(staticWithoutNewlyInserted, this.prevStaticShapes);
-    const dynamicChanged =
-      !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes) ||
-      !isDeeplyEqual(this.erasedShapes, this.prevErasedShapes);
+    const staticChanged = hasForcedRender ? false : !isDeeplyEqual(staticWithoutNewlyInserted, this.prevStaticShapes);
+    const dynamicChanged = hasForcedRender
+      ? false
+      : !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes) || !isDeeplyEqual(this.erasedShapes, this.prevErasedShapes);
 
-    const selectedShapesChanged = !isDeeplyEqual(this.selectedShapes, this.prevSelectedShapes);
-    const selectionChanged = !isDeeplyEqual(this.selectionPathPx, this.prevSelectionPath);
-    const eraserChanged = !isDeeplyEqual(this.eraserPosPx, this.prevEraserPos);
-    const forceShallowRerender =
-      !isDeeplyEqual(this.doc.size_mm, this.prevPageSizeMm) || this.prevPageZoom !== this.doc.zoom_px_per_mm;
+    const selectedShapesChanged = hasForcedRender ? false : !isDeeplyEqual(this.selectedShapes, this.prevSelectedShapes);
+    const selectionChanged = hasForcedRender ? false : !isDeeplyEqual(this.selectionPathPx, this.prevSelectionPath);
+    const eraserChanged = hasForcedRender ? false : !isDeeplyEqual(this.eraserPosPx, this.prevEraserPos);
+    const viewportSizePx = this.getViewportSizePx();
+    const pageSizeChanged = !isDeeplyEqual(this.doc.size_mm, this.prevPageSizeMm);
+    const zoomChanged = this.prevPageZoom !== this.doc.zoom_px_per_mm;
+    const pageGeometryChanged = pageSizeChanged || zoomChanged;
 
-    if (staticChanged || store.forceDeepRender) {
-      await this.preRender();
-      // console.log("Static render");
-      // console.log("Static render", staticChanged);
+    if (pageGeometryChanged) {
+      this.tileManager.clearTiles();
     }
-    if (
-      dynamicChanged ||
-      selectionChanged ||
-      eraserChanged ||
-      forceShallowRerender ||
-      store.forceDeepRender ||
-      selectedShapesChanged ||
-      store.forceShallowRender
-    ) {
-      await this.shallowRender();
-      // console.log("dynamic render");
-      // console.log(
-      //   "dynamic render",
-      //   dynamicChanged,
-      //   selectionChanged,
-      //   eraserChanged,
-      //   forceShallowRerender,
-      //   store.forceDeepRender,
-      //   selectedShapesChanged,
-      //   store.forceShallowRender
-      // );
+
+    if (staticChanged || store.forceDeepRender || pageGeometryChanged) {
+      this.tileManager.invalidateAllVisibleStaticTiles(viewportSizePx);
     }
-    this.prevStaticShapes = [...this.staticShapes];
-    this.prevDynamicShapes = [...this.dynamicShapes];
-    this.prevSelectedShapes = [...this.selectedShapes];
-    this.prevPageSizeMm = new Vec2(this.doc.size_mm);
-    this.prevEraserPos = this.eraserPosPx && new Vec2(this.eraserPosPx);
-    this.prevSelectionPath = this.selectionPathPx && [...this.selectionPathPx];
-    this.prevPageZoom = this.doc.zoom_px_per_mm;
+
+    const rerenderDynamicTiles = this.dirtyDynamicOnly
+      ? false
+      : dynamicChanged ||
+        selectionChanged ||
+        eraserChanged ||
+        pageGeometryChanged ||
+        store.forceDeepRender ||
+        selectedShapesChanged ||
+        store.forceShallowRender;
+
+    this.tileManager.renderAndComposite(viewportSizePx, {
+      staticShapes: this.staticShapes,
+      dynamicShapes: this.dynamicShapes,
+      erasedShapes: this.erasedShapes,
+      selectedShapes: this.selectedShapes,
+      selectionPathPx: this.selectionPathPx,
+      eraserPosPx: this.eraserPosPx,
+      rerenderStaticTiles: false,
+      rerenderDynamicTiles,
+    });
+
+    if (!hasForcedRender || pageGeometryChanged) {
+      this.prevStaticShapes = [...this.staticShapes];
+      this.prevDynamicShapes = [...this.dynamicShapes];
+      this.prevSelectedShapes = [...this.selectedShapes];
+      this.prevPageSizeMm = new Vec2(this.doc.size_mm);
+      this.prevEraserPos = this.eraserPosPx && new Vec2(this.eraserPosPx);
+      this.prevSelectionPath = this.selectionPathPx && [...this.selectionPathPx];
+      this.prevPageZoom = this.doc.zoom_px_per_mm;
+    }
     this.newlyInsertedShapes = [];
     store.triggerRender = false;
     store.forceDeepRender = false;
@@ -117,60 +133,43 @@ export class Renderer {
   async renderNewShapeToPrerenderer(shape: Shape) {
     const store = useStore();
     this.newlyInsertedShapes.push(shape);
-    this.preRenderer.drawShape(shape);
+    this.tileManager.markShapeInserted(shape);
     store.forceShallowRender = true;
   }
 
-  private async preRender() {
-    const store = useStore();
-    this.preRenderer.resizeAndClear(store.mmToPx(this.doc.size_mm));
-    assert(store.paperTexture);
-    this.preRenderer.drawImageCovering(store.paperTexture);
-    this.preRenderer.drawGrid();
-
-    for (const shape of this.staticShapes) {
-      this.preRenderer.drawShape(shape);
-    }
+  markShapeDeleted(shape: Shape) {
+    this.tileManager.markShapeDeleted(shape);
   }
 
-  async shallowRender() {
-    const store = useStore();
-    this.mainRenderer.resizeAndClear(store.mmToPx(this.doc.size_mm));
-
-    this.mainRenderer.drawRenderLayer(this.preRenderer);
-    if (this.selectionPathPx) {
-      this.mainRenderer.drawDashedPolygon(this.selectionPathPx);
-    }
-
-    for (const shape of this.dynamicShapes) {
-      this.mainRenderer.drawShape(shape);
-    }
-
-    for (const shape of this.erasedShapes) {
-      this.mainRenderer.drawShape(shape, true);
-    }
-
-    if (this.eraserPosPx) {
-      this.mainRenderer.drawCircle(this.eraserPosPx, store.eraserSizePx / 2);
-    }
-
-    if (this.selectedShapes.length > 0) {
-      let combinedBbox = this.selectedShapes[0].bbox;
-      for (const shape of this.selectedShapes) {
-        combinedBbox = combineBBox(combinedBbox, shape.bbox);
-        this.mainRenderer.drawSelectionBbox(shape.bbox);
-      }
-      this.mainRenderer.drawSelectionBbox(combinedBbox);
-
-      this.mainRenderer.drawResizeHandle(new Vec2(combinedBbox.right, combinedBbox.bottom));
-    }
+  markShapeMoved(oldBBoxMm: BBox, newBBoxMm: BBox) {
+    this.tileManager.markShapeMoved(oldBBoxMm, newBBoxMm);
   }
 
-  get page() {
-    return this.doc.pages[this.doc.currentPageIndex];
+  markShapeMovedDynamic(oldBBoxMm: BBox, newBBoxMm: BBox) {
+    this.tileManager.markShapeMovedDynamic(oldBBoxMm, newBBoxMm);
   }
 
-  get pageSize() {
-    return getDocumentSizePx(this.doc);
+  buildZoomPreviewCache(
+    viewportSizePx: Vec2,
+    paddingPx: number,
+    quality: number,
+    options?: ZoomPreviewCacheOptions,
+  ): ZoomPreviewCache {
+    return this.tileManager.buildZoomPreviewCache(
+      viewportSizePx,
+      {
+        staticShapes: this.staticShapes,
+        dynamicShapes: this.dynamicShapes,
+        erasedShapes: this.erasedShapes,
+        selectedShapes: this.selectedShapes,
+        selectionPathPx: this.selectionPathPx,
+        eraserPosPx: this.eraserPosPx,
+        rerenderStaticTiles: false,
+        rerenderDynamicTiles: false,
+      },
+      paddingPx,
+      quality,
+      options,
+    );
   }
 }

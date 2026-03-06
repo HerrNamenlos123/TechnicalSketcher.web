@@ -59,9 +59,7 @@ const items = ref<MenuItem[]>([
   {
     label: "back",
     icon: "pi pi-angle-left",
-    disabled: () =>
-      !store.currentlyOpenDocument ||
-      store.currentlyOpenDocument.currentPageIndex <= 0,
+    disabled: () => !store.currentlyOpenDocument || store.currentlyOpenDocument.currentPageIndex <= 0,
     command: () => {
       if (!store.currentlyOpenDocument) return;
       store.currentlyOpenDocument.currentPageIndex--;
@@ -74,8 +72,7 @@ const items = ref<MenuItem[]>([
     icon: "pi pi-angle-right",
     disabled: () =>
       !store.currentlyOpenDocument ||
-      store.currentlyOpenDocument.currentPageIndex >=
-        store.currentlyOpenDocument.pages.length - 1,
+      store.currentlyOpenDocument.currentPageIndex >= store.currentlyOpenDocument.pages.length - 1,
     command: () => {
       if (!store.currentlyOpenDocument) return;
       store.currentlyOpenDocument.currentPageIndex++;
@@ -88,27 +85,13 @@ const items = ref<MenuItem[]>([
 
 <template>
   <div class="relative flex flex-col bg-background h-svh w-svh overflow-hidden">
-    <img
-      class="absolute w-full z-0 h-full object-cover blur-[1px]"
-      src="/table-tiling-2.jpg"
-    />
+    <img class="absolute w-full z-0 h-full object-cover blur-[1px]" src="/table-tiling-2.jpg" />
     <div class="absolute z-20 w-full h-full left-0 top-0 pointer-events-none">
-      <Splitter
-        v-if="leftSidebarToggleTrigger"
-        style="height: 100%; width: 100%"
-      >
-        <SplitterPanel
-          v-if="store.leftSidebarVisible"
-          :min-size="10"
-          :size="20"
-        >
-          <div
-            class="flex flex-col h-full bg-white/10 backdrop-blur-[5px] pointer-events-auto"
-          >
+      <Splitter v-if="leftSidebarToggleTrigger" style="height: 100%; width: 100%">
+        <SplitterPanel v-if="store.leftSidebarVisible" :min-size="10" :size="20">
+          <div class="flex flex-col h-full bg-white/10 backdrop-blur-[5px] pointer-events-auto">
             <div class="flex justify-between p-2 items-center">
-              <div class="text-black text-xl font-bold pl-2">
-                TechnicalSketcher
-              </div>
+              <div class="text-black text-xl font-bold pl-2">TechnicalSketcher</div>
               <Button
                 icon="pi pi-bars"
                 severity="secondary"
@@ -123,10 +106,7 @@ const items = ref<MenuItem[]>([
         <SplitterPanel :min-size="50" :size="80">
           <div v-if="store.paperTexture" class="h-full flex flex-col">
             <div class="relative w-full h-full flex">
-              <div
-                v-if="!store.leftSidebarVisible"
-                class="absolute top-0 left-0 p-2 z-20 pointer-events-auto"
-              >
+              <div v-if="!store.leftSidebarVisible" class="absolute top-0 left-0 p-2 z-20 pointer-events-auto">
                 <Button
                   icon="pi pi-bars"
                   severity="secondary"
@@ -140,9 +120,7 @@ const items = ref<MenuItem[]>([
                       <Button
                         severity="primary"
                         :icon="item.icon"
-                        @click="
-                          item.command?.({ item: item, originalEvent: $event })
-                        "
+                        @click="item.command?.({ item: item, originalEvent: $event })"
                       />
                     </template>
                   </Dock>
@@ -157,7 +135,7 @@ const items = ref<MenuItem[]>([
       v-if="store.currentlyOpenDocument"
       v-model:document="store.currentlyOpenDocument"
       :max-zoom="80"
-      :min-zoom="2"
+      :min-zoom="0.5"
       :zoom-sensitivity="0.001"
     />
     <Toast />

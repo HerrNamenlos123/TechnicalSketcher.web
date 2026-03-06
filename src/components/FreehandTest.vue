@@ -2,7 +2,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
 import {
-  getDocumentSizePx,
   type Document,
   type ImageShape,
   type LineShape,
@@ -59,8 +58,270 @@ const renderer = ref<undefined | Renderer>();
 const viewport = ref<HTMLDivElement>();
 const contextPopupPosPx = ref<undefined | Vec2>();
 const cursorResize = ref(false);
+const pendingFrame = ref<number | undefined>();
+const pendingWheelZoomFinalize = ref<number | undefined>();
+const pendingIdleZoomPreviewCacheBuild = ref<number | undefined>();
+const pendingPanFinalize = ref<number | undefined>();
+const pendingDeferredDeepRender = ref<number | undefined>();
+const lastInteractionAtMs = ref(Date.now());
+const interactiveZooming = ref(false);
+const interactivePanning = ref(false);
+const zoomPreview = ref<
+  | {
+      snapshot: HTMLCanvasElement;
+      startZoom: number;
+      startOffset: Vec2;
+      rectLeftPx: number;
+      rectTopPx: number;
+      rectWidthPx: number;
+      rectHeightPx: number;
+      quality: number;
+    }
+  | undefined
+>();
+const panPreview = ref<
+  | {
+      snapshot: HTMLCanvasElement;
+      startOffset: Vec2;
+    }
+  | undefined
+>();
+const idleZoomPreviewCache = ref<
+  | {
+      snapshot: HTMLCanvasElement;
+      startZoom: number;
+      startOffset: Vec2;
+      rectLeftPx: number;
+      rectTopPx: number;
+      rectWidthPx: number;
+      rectHeightPx: number;
+      quality: number;
+    }
+  | undefined
+>();
 
 const page = computed(() => currentDocument.value.pages[currentDocument.value.currentPageIndex]);
+
+const ZOOM_PREVIEW_CACHE_QUALITY = 0.45;
+const ZOOM_PREVIEW_CACHE_PADDING_FACTOR = 0.4;
+const INTERACTION_IDLE_MS = 220;
+
+const markInteraction = () => {
+  lastInteractionAtMs.value = Date.now();
+};
+
+const cancelPendingDeferredDeepRender = () => {
+  if (pendingDeferredDeepRender.value !== undefined) {
+    window.clearTimeout(pendingDeferredDeepRender.value);
+    pendingDeferredDeepRender.value = undefined;
+  }
+};
+
+const scheduleDeferredDeepRender = (delayMs: number) => {
+  cancelPendingDeferredDeepRender();
+  pendingDeferredDeepRender.value = window.setTimeout(() => {
+    pendingDeferredDeepRender.value = undefined;
+    if (Date.now() - lastInteractionAtMs.value < INTERACTION_IDLE_MS) {
+      scheduleDeferredDeepRender(INTERACTION_IDLE_MS);
+      return;
+    }
+    if (interactiveZooming.value || interactivePanning.value) {
+      scheduleDeferredDeepRender(INTERACTION_IDLE_MS);
+      return;
+    }
+    store.forceDeepRender = true;
+    render();
+  }, delayMs);
+};
+
+const cancelPendingIdleZoomPreviewCacheBuild = () => {
+  if (pendingIdleZoomPreviewCacheBuild.value !== undefined) {
+    window.clearTimeout(pendingIdleZoomPreviewCacheBuild.value);
+    pendingIdleZoomPreviewCacheBuild.value = undefined;
+  }
+};
+
+const scheduleIdleZoomPreviewCacheBuild = () => {
+  if (interactiveZooming.value) return;
+  if (interactivePanning.value) return;
+  if (!renderer.value || !viewport.value) return;
+  cancelPendingIdleZoomPreviewCacheBuild();
+
+  pendingIdleZoomPreviewCacheBuild.value = window.setTimeout(() => {
+    pendingIdleZoomPreviewCacheBuild.value = undefined;
+    if (Date.now() - lastInteractionAtMs.value < INTERACTION_IDLE_MS) {
+      scheduleIdleZoomPreviewCacheBuild();
+      return;
+    }
+    if (interactiveZooming.value || interactivePanning.value) return;
+    if (!renderer.value || !viewport.value) return;
+
+    const vpRect = viewport.value.getBoundingClientRect();
+    const viewportSizePx = new Vec2(vpRect.width, vpRect.height);
+    const paddingPx = Math.max(viewportSizePx.x, viewportSizePx.y) * ZOOM_PREVIEW_CACHE_PADDING_FACTOR;
+    const cache = renderer.value.buildZoomPreviewCache(viewportSizePx, paddingPx, ZOOM_PREVIEW_CACHE_QUALITY, {
+      createMissingTiles: true,
+      refreshDirtyTiles: true,
+    });
+
+    if (interactiveZooming.value) return;
+    idleZoomPreviewCache.value = {
+      snapshot: cache.canvas,
+      startZoom: currentDocument.value.zoom_px_per_mm,
+      startOffset: new Vec2(currentDocument.value.offset),
+      rectLeftPx: cache.rectLeftPx,
+      rectTopPx: cache.rectTopPx,
+      rectWidthPx: cache.rectWidthPx,
+      rectHeightPx: cache.rectHeightPx,
+      quality: cache.quality,
+    };
+  }, INTERACTION_IDLE_MS);
+};
+
+const canUseIdleZoomPreviewCache = () => {
+  if (!idleZoomPreviewCache.value) return false;
+  const zDiff = Math.abs(idleZoomPreviewCache.value.startZoom - currentDocument.value.zoom_px_per_mm);
+  if (zDiff > 0.0001) return false;
+  return true;
+};
+
+const cancelPendingPanFinalize = () => {
+  if (pendingPanFinalize.value !== undefined) {
+    window.clearTimeout(pendingPanFinalize.value);
+    pendingPanFinalize.value = undefined;
+  }
+};
+
+function endInteractivePanPreview() {
+  cancelPendingPanFinalize();
+  if (!interactivePanning.value) return;
+  interactivePanning.value = false;
+  panPreview.value = undefined;
+  render();
+}
+
+const schedulePanFinalize = () => {
+  cancelPendingPanFinalize();
+  pendingPanFinalize.value = window.setTimeout(() => {
+    endInteractivePanPreview();
+  }, 60);
+};
+
+const beginInteractivePanPreview = () => {
+  if (!mainCanvas.value) return;
+  if (interactiveZooming.value) return;
+  if (interactivePanning.value) return;
+
+  const snapshot = document.createElement("canvas");
+  snapshot.width = mainCanvas.value.width;
+  snapshot.height = mainCanvas.value.height;
+  const snapshotCtx = snapshot.getContext("2d", { desynchronized: true });
+  if (!snapshotCtx) return;
+  snapshotCtx.drawImage(mainCanvas.value, 0, 0);
+
+  panPreview.value = {
+    snapshot,
+    startOffset: new Vec2(currentDocument.value.offset),
+  };
+  interactivePanning.value = true;
+};
+
+const drawInteractivePanPreview = () => {
+  if (!mainCanvas.value || !panPreview.value) return;
+  const ctx = mainCanvas.value.getContext("2d", { desynchronized: true });
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio;
+  const delta = currentDocument.value.offset.sub(panPreview.value.startOffset);
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, mainCanvas.value.width, mainCanvas.value.height);
+  ctx.drawImage(
+    panPreview.value.snapshot,
+    Math.round(delta.x * dpr),
+    Math.round(delta.y * dpr),
+  );
+};
+
+const beginInteractiveZoomPreview = () => {
+  if (!mainCanvas.value || !viewport.value || !renderer.value) return;
+  if (interactiveZooming.value) return;
+
+  endInteractivePanPreview();
+
+  cancelPendingIdleZoomPreviewCacheBuild();
+
+  if (canUseIdleZoomPreviewCache() && idleZoomPreviewCache.value) {
+    zoomPreview.value = {
+      snapshot: idleZoomPreviewCache.value.snapshot,
+      startZoom: idleZoomPreviewCache.value.startZoom,
+      startOffset: new Vec2(idleZoomPreviewCache.value.startOffset),
+      rectLeftPx: idleZoomPreviewCache.value.rectLeftPx,
+      rectTopPx: idleZoomPreviewCache.value.rectTopPx,
+      rectWidthPx: idleZoomPreviewCache.value.rectWidthPx,
+      rectHeightPx: idleZoomPreviewCache.value.rectHeightPx,
+      quality: idleZoomPreviewCache.value.quality,
+    };
+    interactiveZooming.value = true;
+    return;
+  }
+
+  const snapshot = document.createElement("canvas");
+  snapshot.width = mainCanvas.value.width;
+  snapshot.height = mainCanvas.value.height;
+  const snapshotCtx = snapshot.getContext("2d", { desynchronized: true });
+  if (!snapshotCtx) return;
+  snapshotCtx.drawImage(mainCanvas.value, 0, 0);
+
+  const vpRect = viewport.value.getBoundingClientRect();
+
+  zoomPreview.value = {
+    snapshot,
+    startZoom: currentDocument.value.zoom_px_per_mm,
+    startOffset: new Vec2(currentDocument.value.offset),
+    rectLeftPx: 0,
+    rectTopPx: 0,
+    rectWidthPx: vpRect.width,
+    rectHeightPx: vpRect.height,
+    quality: 1,
+  };
+  interactiveZooming.value = true;
+};
+
+const drawInteractiveZoomPreview = () => {
+  if (!mainCanvas.value || !zoomPreview.value) return;
+  const ctx = mainCanvas.value.getContext("2d", { desynchronized: true });
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio;
+  const r = currentDocument.value.zoom_px_per_mm / zoomPreview.value.startZoom;
+
+  const dxCss =
+    (zoomPreview.value.rectLeftPx - zoomPreview.value.startOffset.x) * r + currentDocument.value.offset.x;
+  const dyCss =
+    (zoomPreview.value.rectTopPx - zoomPreview.value.startOffset.y) * r + currentDocument.value.offset.y;
+  const dwCss = zoomPreview.value.rectWidthPx * r;
+  const dhCss = zoomPreview.value.rectHeightPx * r;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, mainCanvas.value.width, mainCanvas.value.height);
+  ctx.drawImage(
+    zoomPreview.value.snapshot,
+    Math.round(dxCss * dpr),
+    Math.round(dyCss * dpr),
+    Math.round(dwCss * dpr),
+    Math.round(dhCss * dpr),
+  );
+};
+
+const endInteractiveZoomPreview = () => {
+  markInteraction();
+  interactiveZooming.value = false;
+  zoomPreview.value = undefined;
+  store.forceShallowRender = true;
+  render();
+  scheduleDeferredDeepRender(80);
+};
 
 const performZoom = (ratio: number, center: Vec2) => {
   if (currentDocument.value.zoom_px_per_mm * ratio > props.maxZoom) {
@@ -79,8 +340,10 @@ const textShapes = computed(() => page.value.shapes.filter((s) => s.variant === 
 
 const handleWheel = (e: WheelEvent) => {
   if (!viewport.value || !renderer.value) return;
+  markInteraction();
   e.preventDefault();
   if (e.ctrlKey) {
+    beginInteractiveZoomPreview();
     const delta = e.deltaX + e.deltaY + e.deltaZ;
     let ratio = 1 - delta * props.zoomSensitivity;
     const center = new Vec2(
@@ -88,12 +351,21 @@ const handleWheel = (e: WheelEvent) => {
       e.clientY - viewport.value.getBoundingClientRect().top,
     );
     performZoom(ratio, center);
+    if (pendingWheelZoomFinalize.value !== undefined) {
+      window.clearTimeout(pendingWheelZoomFinalize.value);
+    }
+    pendingWheelZoomFinalize.value = window.setTimeout(() => {
+      endInteractiveZoomPreview();
+    }, 120);
   } else if (e.shiftKey) {
+    beginInteractivePanPreview();
     currentDocument.value.offset = currentDocument.value.offset.add(new Vec2(-e.deltaY, -e.deltaX));
+    schedulePanFinalize();
   } else {
+    beginInteractivePanPreview();
     currentDocument.value.offset = currentDocument.value.offset.add(new Vec2(-e.deltaX, -e.deltaY));
+    schedulePanFinalize();
   }
-  store.forceDeepRender = true;
   render();
 };
 
@@ -104,6 +376,7 @@ const zoomFactorWhenStartingZooming = ref(1);
 const lastZoomCenter = ref(new Vec2());
 const selectionPathPx = ref<undefined | Vec2[]>();
 const eraserPosPx = ref<undefined | Vec2>();
+const lassoSelectionToken = ref(0);
 
 const selectionPathPerimeterLength = computed(() => {
   if (!selectionPathPx.value) return 0;
@@ -119,11 +392,14 @@ const selectionPathPerimeterLength = computed(() => {
 
 const updateZoomingPointers = () => {
   if (!viewport.value || !renderer.value) return;
+  markInteraction();
   const numberOfFingers = pointerEvents.value.length;
   if (numberOfFingers === 1) {
+    beginInteractivePanPreview();
     currentDocument.value.offset = currentDocument.value.offset.add(
       new Vec2(pointerEvents.value[0].movementX, pointerEvents.value[0].movementY),
     );
+    schedulePanFinalize();
   } else if (numberOfFingers === 2) {
     const finger1 = new Vec2(
       pointerEvents.value[0].clientX - viewport.value.getBoundingClientRect().left,
@@ -138,6 +414,7 @@ const updateZoomingPointers = () => {
 
     if (!isZooming.value) {
       isZooming.value = true;
+      beginInteractiveZoomPreview();
       lastZoomCenter.value = center;
       lastZoomFingerDistance.value = distance;
       zoomFactorWhenStartingZooming.value = currentDocument.value.zoom_px_per_mm;
@@ -145,14 +422,15 @@ const updateZoomingPointers = () => {
     }
 
     currentDocument.value.offset = currentDocument.value.offset.add(center.sub(lastZoomCenter.value));
-    performZoom(distance / lastZoomFingerDistance.value, center);
+    const ratio = distance / lastZoomFingerDistance.value;
+    performZoom(ratio, center);
     lastZoomFingerDistance.value = distance;
     lastZoomCenter.value = center;
   }
 
   if (numberOfFingers !== 2) {
     if (isZooming.value && zoomFactorWhenStartingZooming.value !== currentDocument.value.zoom_px_per_mm) {
-      store.forceDeepRender = true;
+      endInteractiveZoomPreview();
     }
     isZooming.value = false;
   }
@@ -198,6 +476,138 @@ function circleOutlineIntersectsLine(
   return Math.abs(dist - r) <= epsilon;
 }
 
+function shapeBBoxToPx(shape: Shape) {
+  return {
+    left: shape.bbox.left * currentDocument.value.zoom_px_per_mm,
+    right: shape.bbox.right * currentDocument.value.zoom_px_per_mm,
+    top: shape.bbox.top * currentDocument.value.zoom_px_per_mm,
+    bottom: shape.bbox.bottom * currentDocument.value.zoom_px_per_mm,
+  };
+}
+
+function getPolygonAabb(points: Vec2[]) {
+  const aabb = {
+    left: points[0].x,
+    right: points[0].x,
+    top: points[0].y,
+    bottom: points[0].y,
+  };
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    if (p.x < aabb.left) aabb.left = p.x;
+    if (p.x > aabb.right) aabb.right = p.x;
+    if (p.y < aabb.top) aabb.top = p.y;
+    if (p.y > aabb.bottom) aabb.bottom = p.y;
+  }
+  return aabb;
+}
+
+function aabbIntersects(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+) {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+}
+
+function isRectInsidePolygon(
+  bboxPx: { left: number; right: number; top: number; bottom: number },
+  polygon: Vec2[],
+) {
+  const midX = (bboxPx.left + bboxPx.right) / 2;
+  const midY = (bboxPx.top + bboxPx.bottom) / 2;
+  const points = [
+    new Vec2(bboxPx.left, bboxPx.top),
+    new Vec2(midX, bboxPx.top),
+    new Vec2(bboxPx.right, bboxPx.top),
+    new Vec2(bboxPx.left, midY),
+    new Vec2(midX, midY),
+    new Vec2(bboxPx.right, midY),
+    new Vec2(bboxPx.left, bboxPx.bottom),
+    new Vec2(midX, bboxPx.bottom),
+    new Vec2(bboxPx.right, bboxPx.bottom),
+  ];
+  for (const p of points) {
+    if (!pointInPolygon(p, polygon)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const runLassoSelectionFast = (rawPathPx: Vec2[]) => {
+  const token = ++lassoSelectionToken.value;
+  cancelPendingDeferredDeepRender();
+  cancelPendingIdleZoomPreviewCacheBuild();
+
+  const pathPx = rawPathPx;
+  const pathAabb = getPolygonAabb(pathPx);
+  const candidates = page.value.shapes.filter((shape) => aabbIntersects(shapeBBoxToPx(shape), pathAabb));
+  const result: Shape[] = [];
+  const pendingLines: Shape[] = [];
+
+  for (const shape of candidates) {
+    const bboxPx = shapeBBoxToPx(shape);
+
+    if (shape.variant !== "Line") {
+      if (isRectInsidePolygon(bboxPx, pathPx)) {
+        result.push(shape);
+      }
+      continue;
+    }
+
+    // Conservative fast accept for lines: if their bbox is fully inside polygon.
+    if (isRectInsidePolygon(bboxPx, pathPx)) {
+      result.push(shape);
+      continue;
+    }
+
+    pendingLines.push(shape);
+  }
+
+  selectedShapes.value = result;
+  store.forceShallowRender = true;
+  render();
+
+  if (pendingLines.length === 0) {
+    return;
+  }
+
+  const evaluateLineStrict = (shape: Shape) => {
+    if (shape.variant !== "Line") return false;
+    for (const point of shape.points) {
+      if (!pointInPolygon(new Vec2(point.x, point.y).mul(currentDocument.value.zoom_px_per_mm), pathPx)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  let i = 0;
+  const runChunk = () => {
+    if (token !== lassoSelectionToken.value) return;
+
+    const start = performance.now();
+    while (i < pendingLines.length && performance.now() - start < 6) {
+      const shape = pendingLines[i++];
+      if (evaluateLineStrict(shape)) {
+        result.push(shape);
+      }
+    }
+
+    if (token !== lassoSelectionToken.value) return;
+
+    selectedShapes.value = [...result];
+    store.forceShallowRender = true;
+    render();
+
+    if (i < pendingLines.length) {
+      requestAnimationFrame(runChunk);
+    }
+  };
+
+  requestAnimationFrame(runChunk);
+};
+
 const selectShapeUnderCursor = (page: Page, cursorPosMm: Vec2) => {
   selectedShapes.value = [];
   for (const shape of page.shapes) {
@@ -219,19 +629,21 @@ const isCursorInAnySelectedBBox = (cursorPosMm: Vec2) => {
   return isPointInBBox(combinedBBox, cursorPosMm);
 };
 
-const render = () => {
+const renderNow = () => {
   if (!renderer.value) return;
   renderer.value.dynamicShapes = [];
   renderer.value.staticShapes = [];
+  const movedSet = new Set(movedShapes.value);
+  const selectedSet = new Set(selectedShapes.value);
   renderer.value.selectedShapes = [];
   renderer.value.selectionPathPx = selectionPathPx.value;
   renderer.value.eraserPosPx = eraserPosPx.value;
 
   for (const shape of page.value.shapes) {
-    if (selectedShapes.value.includes(shape)) {
+    if (selectedSet.has(shape)) {
       renderer.value.selectedShapes.push(shape);
     }
-    if (movedShapes.value.includes(shape)) continue;
+    if (movedSet.has(shape)) continue;
     renderer.value.staticShapes.push(shape);
   }
 
@@ -247,13 +659,32 @@ const render = () => {
     page.value.oldPreviewLineLength = page.value.previewLine.points.length;
   }
 
-  for (const shape of movedShapes.value) {
+  if (movedShapes.value.length > 0) {
     store.forceShallowRender = true;
-    renderer.value.dynamicShapes.push(shape);
+    for (const shape of movedShapes.value) {
+      renderer.value.dynamicShapes.push(shape);
+    }
   }
 
   renderer.value.render();
+  scheduleIdleZoomPreviewCacheBuild();
   // requestAnimationFrame(render);
+};
+
+const render = () => {
+  if (pendingFrame.value !== undefined) {
+    return;
+  }
+  pendingFrame.value = requestAnimationFrame(() => {
+    pendingFrame.value = undefined;
+    if (interactiveZooming.value) {
+      drawInteractiveZoomPreview();
+    } else if (interactivePanning.value) {
+      drawInteractivePanPreview();
+    } else {
+      renderNow();
+    }
+  });
 };
 
 watch(
@@ -264,6 +695,7 @@ watch(
 );
 
 const moveShape = (shape: Shape, delta: Vec2) => {
+  const oldBBox = { ...shape.bbox };
   if (shape.variant === "Image") {
     shape.position.x += delta.x;
     shape.position.y += delta.y;
@@ -280,9 +712,11 @@ const moveShape = (shape: Shape, delta: Vec2) => {
   shape.bbox.right += delta.x;
   shape.bbox.top += delta.y;
   shape.bbox.bottom += delta.y;
+  renderer.value?.markShapeMovedDynamic(oldBBox, shape.bbox);
 };
 
 const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
+  const oldBBox = { ...shape.bbox };
   if (shape.variant === "Image") {
     const newPos = origin.add(new Vec2(shape.position.x, shape.position.y).sub(origin).mul(ratio));
     shape.position.x = newPos.x;
@@ -303,6 +737,7 @@ const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
     }
   }
   updateShapeBBox(shape);
+  renderer.value?.markShapeMovedDynamic(oldBBox, shape.bbox);
 };
 
 class Controls {
@@ -321,8 +756,32 @@ class Controls {
   resizeLastOriginDistance = 0;
   isResizing = false;
   startedSelectionWithStylusButton = false;
+  movedShapeStartBBoxes = new Map<Shape, { left: number; right: number; top: number; bottom: number }>();
 
   constructor() {}
+
+  captureMovedShapeStartBBoxes() {
+    this.movedShapeStartBBoxes.clear();
+    for (const shape of movedShapes.value) {
+      this.movedShapeStartBBoxes.set(shape, { ...shape.bbox });
+      renderer.value?.markShapeDeleted(shape);
+    }
+  }
+
+  clearMovedShapeTracking() {
+    this.movedShapeStartBBoxes.clear();
+  }
+
+  invalidateMovedShapeTiles() {
+    if (!renderer.value) {
+      this.clearMovedShapeTracking();
+      return;
+    }
+    for (const [shape, oldBBox] of this.movedShapeStartBBoxes.entries()) {
+      renderer.value.markShapeMoved(oldBBox, shape.bbox);
+    }
+    this.clearMovedShapeTracking();
+  }
 
   onMouseDown() {
     assert(this.e);
@@ -330,10 +789,14 @@ class Controls {
     // Start resizing
     if (this.isCursorInResizeHandle()) {
       this.isResizing = true;
+      if (renderer.value) {
+        renderer.value.dirtyDynamicOnly = true;
+      }
       const bbox = this.getCombinedSelectionBBox();
       this.resizeOrigin = new Vec2(bbox.left, bbox.top);
       this.resizeLastOriginDistance = this.cursorPosMm.sub(this.resizeOrigin).mag();
       movedShapes.value = [...selectedShapes.value];
+      this.captureMovedShapeStartBBoxes();
       selectionPathPx.value = undefined;
       return;
     }
@@ -342,13 +805,18 @@ class Controls {
     if (selectedShapes.value.length > 0) {
       if (isCursorInAnySelectedBBox(this.cursorPosMm)) {
         this.isMovingShapes = true;
+        if (renderer.value) {
+          renderer.value.dirtyDynamicOnly = true;
+        }
         movedShapes.value = [...selectedShapes.value];
+        this.captureMovedShapeStartBBoxes();
         selectionPathPx.value = undefined;
         return;
       } else {
         this.isMovingShapes = false;
         selectedShapes.value = [];
         movedShapes.value = [];
+        this.clearMovedShapeTracking();
       }
     }
 
@@ -365,6 +833,7 @@ class Controls {
     // if (this.stylusButton || explicitSelectionTool.value) {
     selectedShapes.value = [];
     movedShapes.value = [];
+    this.clearMovedShapeTracking();
     selectionPathPx.value = [this.cursorPosPx];
     this.startedSelectionWithStylusButton = this.stylusButton;
     // return;
@@ -450,10 +919,20 @@ class Controls {
     assert(this.e);
 
     eraserPosPx.value = undefined;
+    const movedOrResized = this.isMovingShapes || this.isResizing;
     this.isMovingShapes = false;
 
     if (this.isResizing) {
       this.isResizing = false;
+    }
+
+    if (movedOrResized) {
+      if (renderer.value) {
+        renderer.value.dirtyDynamicOnly = false;
+      }
+      this.invalidateMovedShapeTiles();
+      movedShapes.value = [];
+      store.forceDeepRender = true;
     }
 
     if (textTool.value) {
@@ -485,38 +964,10 @@ class Controls {
 
       // Has selected and moved
       if (selectionPathPx.value) {
-        for (const shape of page.value.shapes) {
-          let skip = false;
-          if (shape.variant === "Line") {
-            for (const point of shape.points) {
-              if (
-                !pointInPolygon(
-                  new Vec2(point.x, point.y).mul(currentDocument.value.zoom_px_per_mm),
-                  selectionPathPx.value,
-                )
-              ) {
-                skip = true;
-                break;
-              }
-            }
-          } else {
-            const topLeft = new Vec2(shape.position.x, shape.position.y);
-            const topRight = new Vec2(shape.position.x + shape.size.x, shape.position.y);
-            const bottomRight = new Vec2(shape.position.x + shape.size.x, shape.position.y + shape.size.y);
-            const bottomLeft = new Vec2(shape.position.x, shape.position.y + shape.size.y);
-            if (
-              !pointInPolygon(topLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
-              !pointInPolygon(topRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
-              !pointInPolygon(bottomRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
-              !pointInPolygon(bottomLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value)
-            ) {
-              skip = true;
-            }
-          }
-          if (skip) continue;
-          selectedShapes.value.push(shape);
-        }
+        const path = selectionPathPx.value;
         selectionPathPx.value = undefined;
+        selectedShapes.value = [];
+        runLassoSelectionFast(path);
         return;
       }
     }
@@ -528,10 +979,14 @@ class Controls {
     // Start resizing
     if (this.isCursorInResizeHandle()) {
       this.isResizing = true;
+      if (renderer.value) {
+        renderer.value.dirtyDynamicOnly = true;
+      }
       const bbox = this.getCombinedSelectionBBox();
       this.resizeOrigin = new Vec2(bbox.left, bbox.top);
       this.resizeLastOriginDistance = this.cursorPosMm.sub(this.resizeOrigin).mag();
       movedShapes.value = [...selectedShapes.value];
+      this.captureMovedShapeStartBBoxes();
       selectionPathPx.value = undefined;
       return;
     }
@@ -541,13 +996,18 @@ class Controls {
     if (selectedShapes.value.length > 0) {
       if (isCursorInAnySelectedBBox(this.cursorPosMm)) {
         this.isMovingShapes = true;
+        if (renderer.value) {
+          renderer.value.dirtyDynamicOnly = true;
+        }
         movedShapes.value = [...selectedShapes.value];
+        this.captureMovedShapeStartBBoxes();
         selectionPathPx.value = undefined;
         return;
       } else {
         this.isMovingShapes = false;
         selectedShapes.value = [];
         movedShapes.value = [];
+        this.clearMovedShapeTracking();
         skipDrawLine = true;
       }
     }
@@ -560,6 +1020,7 @@ class Controls {
     if (this.stylusButton || explicitSelectionTool.value) {
       selectedShapes.value = [];
       movedShapes.value = [];
+      this.clearMovedShapeTracking();
       selectionPathPx.value = [this.cursorPosPx];
       this.startedSelectionWithStylusButton = this.stylusButton;
       return;
@@ -711,6 +1172,16 @@ class Controls {
         y: this.cursorPosMm.y,
         pressure: 0.5,
       });
+
+      // Keep preview bbox updated for tiled dynamic rendering so strokes can span multiple tiles while drawing.
+      const bbox = page.value.previewLine.bbox;
+      const pad = page.value.previewLine.penThickness;
+      const x = this.cursorPosMm.x;
+      const y = this.cursorPosMm.y;
+      bbox.left = Math.min(bbox.left, x - pad);
+      bbox.right = Math.max(bbox.right, x + pad);
+      bbox.top = Math.min(bbox.top, y - pad);
+      bbox.bottom = Math.max(bbox.bottom, y + pad);
     }
   }
 
@@ -718,10 +1189,20 @@ class Controls {
     assert(this.e);
 
     eraserPosPx.value = undefined;
+    const movedOrResized = this.isMovingShapes || this.isResizing;
     this.isMovingShapes = false;
 
     if (this.isResizing) {
       this.isResizing = false;
+    }
+
+    if (movedOrResized) {
+      if (renderer.value) {
+        renderer.value.dirtyDynamicOnly = false;
+      }
+      this.invalidateMovedShapeTiles();
+      movedShapes.value = [];
+      store.forceDeepRender = true;
     }
 
     if (selectionPathPx.value) {
@@ -744,38 +1225,10 @@ class Controls {
 
       // Has selected and moved
       if (selectionPathPx.value) {
-        for (const shape of page.value.shapes) {
-          let skip = false;
-          if (shape.variant === "Line") {
-            for (const point of shape.points) {
-              if (
-                !pointInPolygon(
-                  new Vec2(point.x, point.y).mul(currentDocument.value.zoom_px_per_mm),
-                  selectionPathPx.value,
-                )
-              ) {
-                skip = true;
-                break;
-              }
-            }
-          } else {
-            const topLeft = new Vec2(shape.position.x, shape.position.y);
-            const topRight = new Vec2(shape.position.x + shape.size.x, shape.position.y);
-            const bottomRight = new Vec2(shape.position.x + shape.size.x, shape.position.y + shape.size.y);
-            const bottomLeft = new Vec2(shape.position.x, shape.position.y + shape.size.y);
-            if (
-              !pointInPolygon(topLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
-              !pointInPolygon(topRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
-              !pointInPolygon(bottomRight.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value) ||
-              !pointInPolygon(bottomLeft.mul(currentDocument.value.zoom_px_per_mm), selectionPathPx.value)
-            ) {
-              skip = true;
-            }
-          }
-          if (skip) continue;
-          selectedShapes.value.push(shape);
-        }
+        const path = selectionPathPx.value;
         selectionPathPx.value = undefined;
+        selectedShapes.value = [];
+        runLassoSelectionFast(path);
         return;
       }
     }
@@ -813,6 +1266,9 @@ class Controls {
 
     if (renderer.value) {
       if (renderer.value.erasedShapes.size > 0) {
+        for (const shape of renderer.value.erasedShapes) {
+          renderer.value.markShapeDeleted(shape);
+        }
         page.value.shapes = page.value.shapes.filter((s) => !renderer.value?.erasedShapes.has(s));
         renderer.value.erasedShapes = new Set();
       }
@@ -832,18 +1288,15 @@ class Controls {
     assert(this.e);
     this.e.preventDefault();
     assert(viewport.value);
-    assert(mainCanvas.value);
     assert(renderer.value);
 
     this.eraserButton = (this.e.buttons & 32) !== 0;
     this.stylusButton = (this.e.buttons & 2) !== 0;
     this.penDown = (this.e.buttons & 1) !== 0;
 
-    const topLeft = new Vec2(
-      mainCanvas.value.getBoundingClientRect().left - viewport.value.getBoundingClientRect().left,
-      mainCanvas.value.getBoundingClientRect().top - viewport.value.getBoundingClientRect().top,
-    );
-    this.cursorPosPx = new Vec2(this.e.offsetX, this.e.offsetY).sub(topLeft);
+    const vpRect = viewport.value.getBoundingClientRect();
+    const pointerInViewportPx = new Vec2(this.e.clientX - vpRect.left, this.e.clientY - vpRect.top);
+    this.cursorPosPx = pointerInViewportPx.sub(currentDocument.value.offset);
     this.cursorPosMm = this.cursorPosPx.div(currentDocument.value.zoom_px_per_mm);
 
     this.deltaMm = new Vec2(this.e.movementX, this.e.movementY).div(currentDocument.value.zoom_px_per_mm);
@@ -899,6 +1352,8 @@ class Controls {
 const controls = ref(new Controls());
 
 const pointerDownHandler = (e: PointerEvent) => {
+  markInteraction();
+  lassoSelectionToken.value++;
   nextTick(() => {
     // Delay so it can be picked up in onPenDown to prevent drawing
     contextPopupPosPx.value = undefined;
@@ -915,6 +1370,7 @@ const pointerDownHandler = (e: PointerEvent) => {
 };
 
 const pointerMoveHandler = (e: PointerEvent) => {
+  markInteraction();
   if (!viewport.value || !mainCanvas.value) return;
 
   // Filter events that are not triggered by movements but other data (e.g. pen pressure)
@@ -933,6 +1389,7 @@ const pointerMoveHandler = (e: PointerEvent) => {
 };
 
 const pointerUpHandler = (e: PointerEvent) => {
+  markInteraction();
   if (!viewport.value || !mainCanvas.value) return;
   if (e.pointerType == "touch") {
     const index = pointerEvents.value.findIndex((cachedEv) => cachedEv.pointerId === e.pointerId);
@@ -1166,6 +1623,7 @@ const keydown = (e: KeyboardEvent) => {
   if (e.key === "Delete") {
     const page = currentDocument.value.pages[currentDocument.value.currentPageIndex];
     for (const shape of selectedShapes.value) {
+      renderer.value?.markShapeDeleted(shape);
       page.shapes = page.shapes.filter((s) => s !== shape);
     }
     selectedShapes.value = [];
@@ -1198,6 +1656,17 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
   window.removeEventListener("keyup", keyup);
+  if (pendingFrame.value !== undefined) {
+    cancelAnimationFrame(pendingFrame.value);
+    pendingFrame.value = undefined;
+  }
+  if (pendingWheelZoomFinalize.value !== undefined) {
+    window.clearTimeout(pendingWheelZoomFinalize.value);
+    pendingWheelZoomFinalize.value = undefined;
+  }
+  cancelPendingDeferredDeepRender();
+  cancelPendingPanFinalize();
+  cancelPendingIdleZoomPreviewCacheBuild();
 });
 
 const contextPopupRef = ref<HTMLDivElement | undefined>();
@@ -1221,15 +1690,10 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
   >
     <canvas
       ref="mainCanvas"
-      class="absolute pointer-events-none rounded-r-3xl shadow-black shadow-md"
+      class="absolute inset-0 pointer-events-none"
       :style="{
-        backgroundColor: currentDocument.pageColor,
-        left: currentDocument.offset.x + 'px',
-        top: currentDocument.offset.y + 'px',
-        borderTopRightRadius: (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 + 'px',
-        borderBottomRightRadius: (currentDocument.size_mm.y * currentDocument.zoom_px_per_mm) / 30 + 'px',
-        width: getDocumentSizePx(currentDocument).x + 'px',
-        height: getDocumentSizePx(currentDocument).y + 'px',
+        width: '100%',
+        height: '100%',
       }"
     />
     <template v-for="(textblock, index) in textShapes" :key="index">
