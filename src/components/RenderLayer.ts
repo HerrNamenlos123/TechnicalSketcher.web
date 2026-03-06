@@ -11,7 +11,7 @@ export class RenderLayer {
     size: Vec2,
     public doc: Document,
     public applyScale: boolean,
-    canvasElement?: HTMLCanvasElement
+    canvasElement?: HTMLCanvasElement,
   ) {
     const scale = window.devicePixelRatio;
     this.canvas = canvasElement || document.createElement("canvas");
@@ -47,14 +47,7 @@ export class RenderLayer {
 
   private setCanvasTransformWithOrigin() {
     const scale = window.devicePixelRatio;
-    this.ctx.setTransform(
-      scale,
-      0,
-      0,
-      scale,
-      -this.originPx.x * scale,
-      -this.originPx.y * scale,
-    );
+    this.ctx.setTransform(scale, 0, 0, scale, -this.originPx.x * scale, -this.originPx.y * scale);
   }
 
   drawRenderLayer(layer: RenderLayer) {
@@ -85,7 +78,7 @@ export class RenderLayer {
       shape.position.x * this.doc.zoom_px_per_mm,
       shape.position.y * this.doc.zoom_px_per_mm,
       shape.size.x * this.doc.zoom_px_per_mm,
-      shape.size.y * this.doc.zoom_px_per_mm
+      shape.size.y * this.doc.zoom_px_per_mm,
     );
 
     this.ctx.restore();
@@ -146,13 +139,13 @@ export class RenderLayer {
       posPx.x - RESIZE_HANDLE_SIZE / 2,
       posPx.y - RESIZE_HANDLE_SIZE / 2,
       RESIZE_HANDLE_SIZE,
-      RESIZE_HANDLE_SIZE
+      RESIZE_HANDLE_SIZE,
     );
     this.ctx.strokeRect(
       posPx.x - RESIZE_HANDLE_SIZE / 2,
       posPx.y - RESIZE_HANDLE_SIZE / 2,
       RESIZE_HANDLE_SIZE,
-      RESIZE_HANDLE_SIZE
+      RESIZE_HANDLE_SIZE,
     );
     this.ctx.restore();
   }

@@ -32,7 +32,7 @@ export class Renderer {
 
   constructor(
     public doc: Document,
-    mainCanvasElement: HTMLCanvasElement
+    mainCanvasElement: HTMLCanvasElement,
   ) {
     this.mainCanvasElement = mainCanvasElement;
     this.tileManager = new TileManager(doc, mainCanvasElement);
@@ -68,9 +68,12 @@ export class Renderer {
     const staticChanged = hasForcedRender ? false : !isDeeplyEqual(staticWithoutNewlyInserted, this.prevStaticShapes);
     const dynamicChanged = hasForcedRender
       ? false
-      : !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes) || !isDeeplyEqual(this.erasedShapes, this.prevErasedShapes);
+      : !isDeeplyEqual(this.dynamicShapes, this.prevDynamicShapes) ||
+        !isDeeplyEqual(this.erasedShapes, this.prevErasedShapes);
 
-    const selectedShapesChanged = hasForcedRender ? false : !isDeeplyEqual(this.selectedShapes, this.prevSelectedShapes);
+    const selectedShapesChanged = hasForcedRender
+      ? false
+      : !isDeeplyEqual(this.selectedShapes, this.prevSelectedShapes);
     const selectionChanged = hasForcedRender ? false : !isDeeplyEqual(this.selectionPathPx, this.prevSelectionPath);
     const eraserChanged = hasForcedRender ? false : !isDeeplyEqual(this.eraserPosPx, this.prevEraserPos);
     const viewportSizePx = this.getViewportSizePx();

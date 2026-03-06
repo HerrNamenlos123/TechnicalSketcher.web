@@ -270,12 +270,14 @@ export class TileManager {
         tile.mainRenderer.drawSelectionBbox(combinedBbox);
       }
       const handlePos = new Vec2(combinedBbox.right, combinedBbox.bottom);
-      if (intersects(tile.boundsPx, {
-        left: handlePos.x,
-        right: handlePos.x,
-        top: handlePos.y,
-        bottom: handlePos.y,
-      })) {
+      if (
+        intersects(tile.boundsPx, {
+          left: handlePos.x,
+          right: handlePos.x,
+          top: handlePos.y,
+          bottom: handlePos.y,
+        })
+      ) {
         tile.mainRenderer.drawResizeHandle(handlePos);
       }
     }

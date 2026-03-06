@@ -1,14 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
-import {
-  type Document,
-  type ImageShape,
-  type LineShape,
-  type Page,
-  type Shape,
-  type TextblockShape,
-} from "./Document";
+import { type Document, type ImageShape, type LineShape, type Page, type Shape, type TextblockShape } from "./Document";
 import {
   assert,
   combineBBox,
@@ -236,11 +229,7 @@ const drawInteractivePanPreview = () => {
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, mainCanvas.value.width, mainCanvas.value.height);
-  ctx.drawImage(
-    panPreview.value.snapshot,
-    Math.round(delta.x * dpr),
-    Math.round(delta.y * dpr),
-  );
+  ctx.drawImage(panPreview.value.snapshot, Math.round(delta.x * dpr), Math.round(delta.y * dpr));
 };
 
 const beginInteractiveZoomPreview = () => {
@@ -296,10 +285,8 @@ const drawInteractiveZoomPreview = () => {
   const dpr = window.devicePixelRatio;
   const r = currentDocument.value.zoom_px_per_mm / zoomPreview.value.startZoom;
 
-  const dxCss =
-    (zoomPreview.value.rectLeftPx - zoomPreview.value.startOffset.x) * r + currentDocument.value.offset.x;
-  const dyCss =
-    (zoomPreview.value.rectTopPx - zoomPreview.value.startOffset.y) * r + currentDocument.value.offset.y;
+  const dxCss = (zoomPreview.value.rectLeftPx - zoomPreview.value.startOffset.x) * r + currentDocument.value.offset.x;
+  const dyCss = (zoomPreview.value.rectTopPx - zoomPreview.value.startOffset.y) * r + currentDocument.value.offset.y;
   const dwCss = zoomPreview.value.rectWidthPx * r;
   const dhCss = zoomPreview.value.rectHeightPx * r;
 
@@ -509,10 +496,7 @@ function aabbIntersects(
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
 }
 
-function isRectInsidePolygon(
-  bboxPx: { left: number; right: number; top: number; bottom: number },
-  polygon: Vec2[],
-) {
+function isRectInsidePolygon(bboxPx: { left: number; right: number; top: number; bottom: number }, polygon: Vec2[]) {
   const midX = (bboxPx.left + bboxPx.right) / 2;
   const midY = (bboxPx.top + bboxPx.bottom) / 2;
   const points = [
