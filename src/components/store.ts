@@ -116,7 +116,7 @@ export async function makeVaultIndexAvailable() {
         await writable.write(
           JSON.stringify({
             lastOpened: null,
-          } satisfies VaultIndexFile)
+          } satisfies VaultIndexFile),
         );
         await writable.close();
       }
@@ -135,6 +135,43 @@ export async function makeVaultIndexAvailable() {
   const file = await store.currentVaultIndexFile.handle.getFile();
   const content = await file.text();
   store.currentVaultIndex = JSON.parse(content);
+}
+
+// Helper function to extract DD-MM-YYYY or DD.MM.YYYY date from start of filename
+function extractDateFromFilename(filename: string): Date | null {
+  const dateMatch = filename.match(/^(\d{2})[-.](\d{2})[-.](\d{4})/);
+  if (!dateMatch) return null;
+  const [, day, month, year] = dateMatch;
+  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+  // Validate the date
+  if (isNaN(date.getTime())) return null;
+  return date;
+}
+
+// Comparator function for entries with date-aware sorting
+function compareEntries(a: FSFileEntry | FSDirEntry, b: FSFileEntry | FSDirEntry): number {
+  const nameA = a.handle.name;
+  const nameB = b.handle.name;
+
+  // Directories always come first
+  if (a.type === "directory" && b.type !== "directory") return -1;
+  if (b.type === "directory" && a.type !== "directory") return 1;
+
+  // Try to extract dates from both names
+  const dateA = extractDateFromFilename(nameA);
+  const dateB = extractDateFromFilename(nameB);
+
+  // If both have dates, compare chronologically
+  if (dateA && dateB) {
+    return dateA.getTime() - dateB.getTime();
+  }
+
+  // If only one has a date, date comes first
+  if (dateA && !dateB) return -1;
+  if (!dateA && dateB) return 1;
+
+  // Fall back to alphabetical sorting
+  return nameA.localeCompare(nameB, "de", { numeric: true });
 }
 
 export const vaultIndex = computed({
@@ -210,7 +247,7 @@ export const useStore = defineStore("tsk-main", {
     async readVault(rootHandle: FileSystemDirectoryHandle): Promise<VaultFS> {
       const processEntries = async (
         dirHandle: FileSystemDirectoryHandle,
-        parentPath: string
+        parentPath: string,
       ): Promise<(FSFileEntry | FSDirEntry)[]> => {
         const entries: (FSFileEntry | FSDirEntry)[] = [];
         for await (const [name, handle] of dirHandle.entries()) {
@@ -240,13 +277,7 @@ export const useStore = defineStore("tsk-main", {
             }
             if (!skip) {
               const children = await processEntries(handle, parentPath + name + "/");
-              children.sort((a, b) => {
-                const nameA = a.handle.name;
-                const nameB = b.handle.name;
-                if (a.type === "directory" && b.type !== "directory") return -1;
-                if (b.type === "directory" && a.type !== "directory") return 1;
-                return nameA.localeCompare(nameB, "de", { numeric: true });
-              });
+              children.sort(compareEntries);
               if (children.length > 0) {
                 entries.push({
                   type: "directory",
@@ -266,13 +297,7 @@ export const useStore = defineStore("tsk-main", {
         filetree: await processEntries(rootHandle, ""),
         rootHandle: rootHandle,
       };
-      fs.filetree.sort((a, b) => {
-        const nameA = a.handle.name;
-        const nameB = b.handle.name;
-        if (a.type === "directory" && b.type !== "directory") return -1;
-        if (b.type === "directory" && a.type !== "directory") return 1;
-        return nameA.localeCompare(nameB, "de", { numeric: true });
-      });
+      fs.filetree.sort(compareEntries);
 
       return fs;
     },
@@ -401,15 +426,15 @@ export const useStore = defineStore("tsk-main", {
                     } else {
                       throw new Error();
                     }
-                  })
+                  }),
                 ),
                 previewLine: undefined,
-              })
-            )
+              }),
+            ),
           ),
           size_mm: new Vec2(
             input.data.pageWidthMm ?? DEFAULT_PAGE_SIZE.x,
-            input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y
+            input.data.pageHeightMm ?? DEFAULT_PAGE_SIZE.y,
           ),
           pageColor: input.data.pageColor,
           gridColor: input.data.gridColor,
