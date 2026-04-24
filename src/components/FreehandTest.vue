@@ -13,6 +13,7 @@ import {
 } from "./store";
 import { Renderer } from "./Renderer";
 import type { ImageShapeFileFormat, LineShapeFileFormat, ShapesInClipboard } from "@/types";
+import ColorSelectPanel from "./ColorSelectPanel.vue";
 
 const CONTEXT_MENU_PERIMETER_LIMIT_PX = 5;
 
@@ -22,23 +23,6 @@ const explicitSelectionTool = ref(false);
 const textTool = ref(false);
 const selectedShapes = ref<Shape[]>([]);
 const movedShapes = ref<Shape[]>([]);
-
-const colors = [
-  "#000000", // Jet Black
-  "#1D4ED8", // Royal Blue
-  "#DC2626", // Crimson Red
-  "#16A34A", // Emerald Green
-  "#CA8A04", // Goldenrod
-  // "#9333EA", // Vivid Violet (Original)
-  "#7E34D9", // New Violet #1
-  // "#F97316", // Bright Orange (Original)
-  // "#EA580C", // Less aggressive orange
-  // "#C2410C", // Burnt Orange
-  // "#D97706", // Amber Orange
-  // "#FB8C00", // New Orange #1
-  "#F57C00", // New Orange #2
-  "#6B7280", // Slate Gray
-];
 
 const penThicknesses = [0.1, 0.3, 0.5, 0.7, 0.9];
 
@@ -729,6 +713,18 @@ const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
   updateShapeBBox(shape);
   renderer.value?.markShapeMovedDynamic(oldBBox, shape.bbox);
 };
+
+const selectedShapesColorInputBBox = computed(() => {
+  if (selectedShapes.value.length === 0) {
+    return undefined;
+  }
+
+  let bbox = selectedShapes.value[0].bbox;
+  for (const shape of selectedShapes.value) {
+    bbox = combineBBox(bbox, shape.bbox);
+  }
+  return bbox;
+});
 
 class Controls {
   eraserButton = false;
@@ -1659,6 +1655,15 @@ onUnmounted(() => {
   cancelPendingIdleZoomPreviewCacheBuild();
 });
 
+const setColorForSelectedShapes = (color: string) => {
+  for (const shape of selectedShapes.value) {
+    if (shape.variant === "Line") {
+      shape.penColor = color;
+    }
+  }
+  store.forceDeepRender = true;
+};
+
 const contextPopupRef = ref<HTMLDivElement | undefined>();
 </script>
 
@@ -1701,6 +1706,16 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
       />
     </template>
     <div
+      v-if="selectedShapesColorInputBBox"
+      class="absolute -translate-y-full p-2"
+      :style="{
+        left: currentDocument.offset.x + selectedShapesColorInputBBox.right * currentDocument.zoom_px_per_mm + 'px',
+        top: currentDocument.offset.y + selectedShapesColorInputBBox.top * currentDocument.zoom_px_per_mm + 'px',
+      }"
+    >
+      <ColorSelectPanel @select-color="setColorForSelectedShapes" />
+    </div>
+    <div
       v-if="contextPopupPosPx"
       ref="contextPopupRef"
       class="absolute w-0 h-0 outline-none focus:outline-none"
@@ -1713,31 +1728,14 @@ const contextPopupRef = ref<HTMLDivElement | undefined>();
       @click="contextPopupPosPx = undefined"
     >
       <div class="-translate-x-1/2 -translate-y-1/2 w-fit flex flex-col gap-12 items-center">
-        <div id="penColor" class="flex bg-white p-2 gap-2 w-fit rounded-md border border-black">
-          <div
-            v-for="color in colors"
-            :key="color"
-            class="cursor-pointer"
-            @click.stop.prevent="
-              () => {
-                store.penColor = color;
-                contextPopupPosPx = undefined;
-              }
-            "
-            @pointercancel.stop.prevent
-            @pointerdown.stop.prevent
-            @pointerleave.stop.prevent
-            @pointermove.stop.prevent
-            @pointerup.stop.prevent
-          >
-            <div
-              class="rounded-full w-5 h-5"
-              :style="{
-                backgroundColor: color,
-              }"
-            />
-          </div>
-        </div>
+        <ColorSelectPanel
+          @select-color="
+            (color) => {
+              store.penColor = color;
+              contextPopupPosPx = undefined;
+            }
+          "
+        />
         <div id="penSize" class="flex bg-white w-fit rounded-md border border-black p-1 gap-1">
           <div
             class="cursor-pointer"
