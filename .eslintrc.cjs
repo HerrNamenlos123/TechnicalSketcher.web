@@ -28,6 +28,7 @@ module.exports = {
       {
         args: "all",
         varsIgnorePattern: "^(_.*|props|emit)$",
+        paramsIgnorePattern: "^(_.*|props|emit)$",
         argsIgnorePattern: "^(_.*)$",
         caughtErrors: "all",
         destructuredArrayIgnorePattern: "^_",

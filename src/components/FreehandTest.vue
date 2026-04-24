@@ -29,8 +29,14 @@ const colors = [
   "#DC2626", // Crimson Red
   "#16A34A", // Emerald Green
   "#CA8A04", // Goldenrod
-  "#9333EA", // Vivid Violet
-  "#F97316", // Bright Orange
+  // "#9333EA", // Vivid Violet (Original)
+  "#7E34D9", // New Violet #1
+  // "#F97316", // Bright Orange (Original)
+  // "#EA580C", // Less aggressive orange
+  // "#C2410C", // Burnt Orange
+  // "#D97706", // Amber Orange
+  // "#FB8C00", // New Orange #1
+  "#F57C00", // New Orange #2
   "#6B7280", // Slate Gray
 ];
 
