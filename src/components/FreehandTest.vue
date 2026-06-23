@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { Vec2 } from "./Vector";
 import { type Document, type ImageShape, type LineShape, type Page, type Shape, type TextblockShape } from "./Document";
 import {
@@ -38,7 +38,11 @@ const props = defineProps<{
 }>();
 
 const mainCanvas = ref<HTMLCanvasElement>();
-const renderer = ref<undefined | Renderer>();
+// shallowRef: Renderer owns TileManager/Tile/RenderLayer/canvas-context internals that get
+// hit on every point of every stroke redraw. A plain ref() would let Vue deep-wrap all of that
+// in reactive proxies (every "this.ctx" getter access then goes through a Proxy trap), which
+// showed up as a major hotspot in drawLineShape. None of this is read reactively in the template.
+const renderer = shallowRef<undefined | Renderer>();
 const viewport = ref<HTMLDivElement>();
 const contextPopupPosPx = ref<undefined | Vec2>();
 const cursorResize = ref(false);
@@ -1369,7 +1373,10 @@ class Controls {
   }
 }
 
-const controls = ref(new Controls());
+// shallowRef for the same reason as `renderer`: Controls is mutated on every pointer event and
+// is never read reactively from the template (only invoked as methods), so it shouldn't pay for
+// deep reactive wrapping either.
+const controls = shallowRef(new Controls());
 
 const pointerDownHandler = (e: PointerEvent) => {
   markInteraction();
