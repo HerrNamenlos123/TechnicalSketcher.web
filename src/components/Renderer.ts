@@ -4,6 +4,19 @@ import { useStore } from "./store";
 import { TileManager, type ZoomPreviewCache, type ZoomPreviewCacheOptions } from "./TileManager";
 import { Vec2 } from "./Vector";
 
+// Mirrors FreehandTest.vue's ZOOM_PREVIEW_CACHE_PADDING_FACTOR: keeping this many tiles
+// pre-rendered beyond the exact viewport means the padded preview snapshot built at the start
+// of every pan/zoom gesture is just compositing tiles that already exist instead of needing to
+// render anything new, and it's also why the page edge no longer looks cropped to wherever the
+// viewport happened to end before the gesture started.
+const TILE_BUFFER_PADDING_FACTOR = 0.4;
+
+// Letting the buffer prewarm run synchronously inside render() made every gesture-end (and
+// every other real render) noticeably more expensive, which showed up as stutter mid-zoom since
+// a zoom gesture frequently ends/restarts on brief pauses between wheel ticks. Deferring it onto
+// a timer keeps render() itself exactly as cheap as before the buffer was introduced.
+const BUFFER_PREWARM_DELAY_MS = 50;
+
 export class Renderer {
   tileManager: TileManager;
   dirtyDynamicOnly = false;
@@ -30,6 +43,14 @@ export class Renderer {
 
   private isRendering = false;
   private needsCleanupRender = false;
+  private pendingBufferPrewarm: number | undefined;
+  // Set by the component while an interactive pan/zoom gesture is in progress (see
+  // FreehandTest.vue). The buffer prewarm renders a whole ring of tiles synchronously when it
+  // fires - if that timer happened to land in the middle of an active gesture, it was a real
+  // source of mid-zoom stutter even though it's "just" idle prep work. Checked right before
+  // doing the work, rather than cancelled outright, so prep still happens as soon as the
+  // gesture ends instead of being lost entirely.
+  interactionActive = false;
 
   constructor(
     public doc: Document,
@@ -114,6 +135,7 @@ export class Renderer {
       rerenderStaticTiles: false,
       rerenderDynamicTiles,
     });
+    this.scheduleBufferPrewarm(viewportSizePx);
 
     if (!hasForcedRender || pageGeometryChanged) {
       this.prevStaticShapes = [...this.staticShapes];
@@ -137,6 +159,34 @@ export class Renderer {
 
       this.render();
     }
+  }
+
+  private scheduleBufferPrewarm(viewportSizePx: Vec2) {
+    if (this.pendingBufferPrewarm !== undefined) {
+      window.clearTimeout(this.pendingBufferPrewarm);
+    }
+    this.pendingBufferPrewarm = window.setTimeout(() => {
+      this.pendingBufferPrewarm = undefined;
+      if (this.interactionActive) {
+        this.scheduleBufferPrewarm(viewportSizePx);
+        return;
+      }
+      const bufferPx = Math.max(viewportSizePx.x, viewportSizePx.y) * TILE_BUFFER_PADDING_FACTOR;
+      this.tileManager.prewarmBufferTiles(
+        viewportSizePx,
+        {
+          staticShapes: this.staticShapes,
+          dynamicShapes: this.dynamicShapes,
+          erasedShapes: this.erasedShapes,
+          selectedShapes: this.selectedShapes,
+          selectionPathPx: this.selectionPathPx,
+          eraserPosPx: this.eraserPosPx,
+          rerenderStaticTiles: false,
+          rerenderDynamicTiles: false,
+        },
+        bufferPx,
+      );
+    }, BUFFER_PREWARM_DELAY_MS);
   }
 
   async renderNewShapeToPrerenderer(shape: Shape) {

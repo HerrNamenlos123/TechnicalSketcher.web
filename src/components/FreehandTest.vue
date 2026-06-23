@@ -49,8 +49,8 @@ const contextPopupPosPx = ref<undefined | Vec2>();
 const cursorResize = ref(false);
 const pendingFrame = ref<number | undefined>();
 const pendingWheelZoomFinalize = ref<number | undefined>();
-const pendingIdleZoomPreviewCacheBuild = ref<number | undefined>();
 const pendingPanFinalize = ref<number | undefined>();
+const pendingMidPanRefresh = ref<number | undefined>();
 const pendingDeferredDeepRender = ref<number | undefined>();
 const lastInteractionAtMs = ref(Date.now());
 const interactiveZooming = ref(false);
@@ -83,29 +83,32 @@ const panPreview = ref<
     }
   | undefined
 >();
-const idleZoomPreviewCache = ref<
-  | {
-      snapshot: HTMLCanvasElement;
-      startZoom: number;
-      startOffset: Vec2;
-      rectLeftPx: number;
-      rectTopPx: number;
-      rectWidthPx: number;
-      rectHeightPx: number;
-      quality: number;
-    }
-  | undefined
->();
-
 const page = computed(() => currentDocument.value.pages[currentDocument.value.currentPageIndex]);
 
-// Used as the very first frame of an interactive zoom/pan gesture (see canUseIdleZoomPreviewCache
-// and beginInteractivePanPreview), so anything less than 1 here was visible as a sudden,
-// pointless resolution drop the instant a gesture started - the tiles it's built from are
-// already fully rendered, so there's no real cost to keeping it at full quality.
+// Tells the Renderer when a gesture is in progress so it can hold off on its background buffer
+// prewarm (see Renderer.ts) - running that mid-gesture was a real source of stutter even though
+// it's only meant to be idle prep work.
+watch([interactiveZooming, interactivePanning], ([zooming, panning]) => {
+  if (renderer.value) {
+    renderer.value.interactionActive = zooming || panning;
+  }
+});
+
+// Used for the padded preview snapshot built fresh at the start of every interactive zoom/pan
+// gesture (see beginInteractivePanPreview/beginInteractiveZoomPreview), so anything less than 1
+// here was visible as a sudden, pointless resolution drop the instant a gesture started - the
+// tiles it's built from are already fully rendered, so there's no real cost to keeping it at
+// full quality.
 const ZOOM_PREVIEW_CACHE_QUALITY = 1;
 const ZOOM_PREVIEW_CACHE_PADDING_FACTOR = 0.4;
 const INTERACTION_IDLE_MS = 220;
+// A single pan-preview snapshot only extends ZOOM_PREVIEW_CACHE_PADDING_FACTOR past the
+// viewport, so any pan gesture that travels further than that runs out of real content and
+// exposes a clipped edge. Periodically re-anchoring the snapshot to a fresh real render bounds
+// how far a gesture can travel before that happens to "however far you can pan in this many ms",
+// which is imperceptible at normal scroll speeds. Not used for zoom: zoom must stay a pure
+// snapshot scale with zero extra work mid-gesture.
+const MID_PAN_REFRESH_MS = 150;
 
 const markInteraction = () => {
   lastInteractionAtMs.value = Date.now();
@@ -135,55 +138,24 @@ const scheduleDeferredDeepRender = (delayMs: number) => {
   }, delayMs);
 };
 
-const cancelPendingIdleZoomPreviewCacheBuild = () => {
-  if (pendingIdleZoomPreviewCacheBuild.value !== undefined) {
-    window.clearTimeout(pendingIdleZoomPreviewCacheBuild.value);
-    pendingIdleZoomPreviewCacheBuild.value = undefined;
-  }
-};
-
-const scheduleIdleZoomPreviewCacheBuild = () => {
-  if (interactiveZooming.value) return;
-  if (interactivePanning.value) return;
-  if (!renderer.value || !viewport.value) return;
-  cancelPendingIdleZoomPreviewCacheBuild();
-
-  pendingIdleZoomPreviewCacheBuild.value = window.setTimeout(() => {
-    pendingIdleZoomPreviewCacheBuild.value = undefined;
-    if (Date.now() - lastInteractionAtMs.value < INTERACTION_IDLE_MS) {
-      scheduleIdleZoomPreviewCacheBuild();
-      return;
-    }
-    if (interactiveZooming.value || interactivePanning.value) return;
-    if (!renderer.value || !viewport.value) return;
-
-    const vpRect = viewport.value.getBoundingClientRect();
-    const viewportSizePx = new Vec2(vpRect.width, vpRect.height);
-    const paddingPx = Math.max(viewportSizePx.x, viewportSizePx.y) * ZOOM_PREVIEW_CACHE_PADDING_FACTOR;
-    const cache = renderer.value.buildZoomPreviewCache(viewportSizePx, paddingPx, ZOOM_PREVIEW_CACHE_QUALITY, {
-      createMissingTiles: true,
-      refreshDirtyTiles: true,
-    });
-
-    if (interactiveZooming.value) return;
-    idleZoomPreviewCache.value = {
-      snapshot: cache.canvas,
-      startZoom: currentDocument.value.zoom_px_per_mm,
-      startOffset: new Vec2(currentDocument.value.offset),
-      rectLeftPx: cache.rectLeftPx,
-      rectTopPx: cache.rectTopPx,
-      rectWidthPx: cache.rectWidthPx,
-      rectHeightPx: cache.rectHeightPx,
-      quality: cache.quality,
-    };
-  }, INTERACTION_IDLE_MS);
-};
-
-const canUseIdleZoomPreviewCache = () => {
-  if (!idleZoomPreviewCache.value) return false;
-  const zDiff = Math.abs(idleZoomPreviewCache.value.startZoom - currentDocument.value.zoom_px_per_mm);
-  if (zDiff > 0.0001) return false;
-  return true;
+// Builds a padded preview snapshot synchronously, for the very first frame of an interactive
+// pan/zoom gesture. This used to be precomputed on a 220ms idle timer and reused for as long as
+// it looked "still valid" (same zoom), which meant a long continuous gesture could keep reusing
+// a snapshot captured at a stale offset - the root cause of a bug where panning would visibly
+// snap back toward wherever the cache happened to be built. Building it fresh, synchronously,
+// every time a gesture begins removes the staleness question entirely: createMissingTiles/
+// refreshDirtyTiles are both false, so this is cheap as long as Renderer.render() already keeps
+// a buffer of tiles rendered beyond the exact viewport (see TILE_BUFFER_PADDING_FACTOR in
+// Renderer.ts) - this is then just compositing tiles that already exist, not rendering new ones.
+const buildFreshZoomPreviewCache = () => {
+  if (!renderer.value || !viewport.value) return undefined;
+  const vpRect = viewport.value.getBoundingClientRect();
+  const viewportSizePx = new Vec2(vpRect.width, vpRect.height);
+  const paddingPx = Math.max(viewportSizePx.x, viewportSizePx.y) * ZOOM_PREVIEW_CACHE_PADDING_FACTOR;
+  return renderer.value.buildZoomPreviewCache(viewportSizePx, paddingPx, ZOOM_PREVIEW_CACHE_QUALITY, {
+    createMissingTiles: false,
+    refreshDirtyTiles: false,
+  });
 };
 
 const cancelPendingPanFinalize = () => {
@@ -195,6 +167,7 @@ const cancelPendingPanFinalize = () => {
 
 function endInteractivePanPreview() {
   cancelPendingPanFinalize();
+  cancelPendingMidPanRefresh();
   if (!interactivePanning.value) return;
   interactivePanning.value = false;
   panPreview.value = undefined;
@@ -216,30 +189,63 @@ const schedulePanFinalize = () => {
   }, 60);
 };
 
+const cancelPendingMidPanRefresh = () => {
+  if (pendingMidPanRefresh.value !== undefined) {
+    window.clearTimeout(pendingMidPanRefresh.value);
+    pendingMidPanRefresh.value = undefined;
+  }
+};
+
+// Re-anchors the in-progress pan preview to a fresh real render, so a gesture that keeps going
+// for longer than one snapshot's padding can sustain doesn't run out of content. renderNow()
+// here is cheap in the common case: most of the exact viewport's tiles are already up to date,
+// so it's mostly just re-compositing, with real rendering work only for whatever sliver of tiles
+// became newly visible since the last refresh.
+const refreshPanPreview = () => {
+  if (!interactivePanning.value) return;
+  renderNow();
+  const cache = buildFreshZoomPreviewCache();
+  if (!cache) return;
+  panPreview.value = {
+    snapshot: cache.canvas,
+    startOffset: new Vec2(currentDocument.value.offset),
+    rectLeftPx: cache.rectLeftPx,
+    rectTopPx: cache.rectTopPx,
+    quality: cache.quality,
+  };
+};
+
+const scheduleMidPanRefresh = () => {
+  cancelPendingMidPanRefresh();
+  pendingMidPanRefresh.value = window.setTimeout(() => {
+    pendingMidPanRefresh.value = undefined;
+    if (!interactivePanning.value) return;
+    refreshPanPreview();
+    scheduleMidPanRefresh();
+  }, MID_PAN_REFRESH_MS);
+};
+
 const beginInteractivePanPreview = () => {
   if (!mainCanvas.value) return;
   if (interactiveZooming.value) return;
   if (interactivePanning.value) return;
 
-  // Prefer the padded idle zoom-preview cache over a plain snapshot of the current canvas: it
-  // extends past the viewport edges, so panning has real (if lower-res) content to slide into
-  // instead of immediately exposing a hard edge sitting exactly where the viewport used to end.
-  if (canUseIdleZoomPreviewCache() && idleZoomPreviewCache.value) {
-    // startOffset must be where the cache's content was actually captured, not the live offset
-    // right now - canUseIdleZoomPreviewCache() only checks that zoom hasn't changed, and during
-    // one continuous scroll (markInteraction() keeps resetting the idle-rebuild timer) the same
-    // cache can still be "valid" long after the page has panned far from where it was captured.
-    // Anchoring to the current offset instead made every ~60ms pan-finalize restart compute the
-    // delta against the wrong baseline while the snapshot stayed frozen at the old position -
-    // visually, the page kept snapping back toward where the cache was built.
+  // A padded snapshot (extending past the viewport edges) gives panning real content to slide
+  // into instead of immediately exposing a hard edge sitting exactly where the viewport used to
+  // end. Building it fresh here means startOffset is always exactly where the snapshot's
+  // content was actually captured - see buildFreshZoomPreviewCache for why this used to be a
+  // stale-cache reuse bug.
+  const cache = buildFreshZoomPreviewCache();
+  if (cache) {
     panPreview.value = {
-      snapshot: idleZoomPreviewCache.value.snapshot,
-      startOffset: new Vec2(idleZoomPreviewCache.value.startOffset),
-      rectLeftPx: idleZoomPreviewCache.value.rectLeftPx,
-      rectTopPx: idleZoomPreviewCache.value.rectTopPx,
-      quality: idleZoomPreviewCache.value.quality,
+      snapshot: cache.canvas,
+      startOffset: new Vec2(currentDocument.value.offset),
+      rectLeftPx: cache.rectLeftPx,
+      rectTopPx: cache.rectTopPx,
+      quality: cache.quality,
     };
     interactivePanning.value = true;
+    scheduleMidPanRefresh();
     return;
   }
 
@@ -258,6 +264,7 @@ const beginInteractivePanPreview = () => {
     quality: 1,
   };
   interactivePanning.value = true;
+  scheduleMidPanRefresh();
 };
 
 const drawInteractivePanPreview = () => {
@@ -290,18 +297,17 @@ const beginInteractiveZoomPreview = () => {
 
   endInteractivePanPreview();
 
-  cancelPendingIdleZoomPreviewCacheBuild();
-
-  if (canUseIdleZoomPreviewCache() && idleZoomPreviewCache.value) {
+  const cache = buildFreshZoomPreviewCache();
+  if (cache) {
     zoomPreview.value = {
-      snapshot: idleZoomPreviewCache.value.snapshot,
-      startZoom: idleZoomPreviewCache.value.startZoom,
-      startOffset: new Vec2(idleZoomPreviewCache.value.startOffset),
-      rectLeftPx: idleZoomPreviewCache.value.rectLeftPx,
-      rectTopPx: idleZoomPreviewCache.value.rectTopPx,
-      rectWidthPx: idleZoomPreviewCache.value.rectWidthPx,
-      rectHeightPx: idleZoomPreviewCache.value.rectHeightPx,
-      quality: idleZoomPreviewCache.value.quality,
+      snapshot: cache.canvas,
+      startZoom: currentDocument.value.zoom_px_per_mm,
+      startOffset: new Vec2(currentDocument.value.offset),
+      rectLeftPx: cache.rectLeftPx,
+      rectTopPx: cache.rectTopPx,
+      rectWidthPx: cache.rectWidthPx,
+      rectHeightPx: cache.rectHeightPx,
+      quality: cache.quality,
     };
     interactiveZooming.value = true;
     return;
@@ -461,17 +467,42 @@ const selectionPathPerimeterLength = computed(() => {
   return perimeterPx;
 });
 
+const pendingTouchZoomEndCheck = ref<number | undefined>();
+// Tolerates brief multitouch finger-count flicker (the OS/browser reporting 0 or 1 active
+// pointers for a few ms mid-pinch, e.g. while two near-simultaneous lifts or re-touches are
+// being delivered) without tearing down the zoom gesture. Reacting immediately to every such
+// flicker used to end and restart the gesture, which both showed up as repeated full tile
+// rebuilds (felt as lag) and, in the race between that teardown and the next gesture starting,
+// briefly composited tiles that belonged to the wrong zoom level (the corrupted frame).
+const TOUCH_ZOOM_END_GRACE_MS = 120;
+
+const cancelPendingTouchZoomEndCheck = () => {
+  if (pendingTouchZoomEndCheck.value !== undefined) {
+    window.clearTimeout(pendingTouchZoomEndCheck.value);
+    pendingTouchZoomEndCheck.value = undefined;
+  }
+};
+
+const scheduleTouchZoomEndCheck = () => {
+  cancelPendingTouchZoomEndCheck();
+  pendingTouchZoomEndCheck.value = window.setTimeout(() => {
+    pendingTouchZoomEndCheck.value = undefined;
+    if (!isZooming.value) return;
+    if (pointerEvents.value.length === 2) return;
+    if (zoomFactorWhenStartingZooming.value !== currentDocument.value.zoom_px_per_mm) {
+      endInteractiveZoomPreview();
+    }
+    isZooming.value = false;
+  }, TOUCH_ZOOM_END_GRACE_MS);
+};
+
 const updateZoomingPointers = () => {
   if (!viewport.value || !renderer.value) return;
   markInteraction();
   const numberOfFingers = pointerEvents.value.length;
-  if (numberOfFingers === 1) {
-    beginInteractivePanPreview();
-    currentDocument.value.offset = currentDocument.value.offset.add(
-      new Vec2(pointerEvents.value[0].movementX, pointerEvents.value[0].movementY),
-    );
-    schedulePanFinalize();
-  } else if (numberOfFingers === 2) {
+
+  if (numberOfFingers === 2) {
+    cancelPendingTouchZoomEndCheck();
     const finger1 = new Vec2(
       pointerEvents.value[0].clientX - viewport.value.getBoundingClientRect().left,
       pointerEvents.value[0].clientY - viewport.value.getBoundingClientRect().top,
@@ -497,13 +528,23 @@ const updateZoomingPointers = () => {
     performZoom(ratio, center);
     lastZoomFingerDistance.value = distance;
     lastZoomCenter.value = center;
+    return;
   }
 
-  if (numberOfFingers !== 2) {
-    if (isZooming.value && zoomFactorWhenStartingZooming.value !== currentDocument.value.zoom_px_per_mm) {
-      endInteractiveZoomPreview();
-    }
-    isZooming.value = false;
+  if (isZooming.value) {
+    // Don't immediately fall through to panning with whichever finger is left - this might be
+    // real, or might be the touch-noise flicker described above. scheduleTouchZoomEndCheck()
+    // re-checks pointerEvents.value.length once the grace period elapses.
+    scheduleTouchZoomEndCheck();
+    return;
+  }
+
+  if (numberOfFingers === 1) {
+    beginInteractivePanPreview();
+    currentDocument.value.offset = currentDocument.value.offset.add(
+      new Vec2(pointerEvents.value[0].movementX, pointerEvents.value[0].movementY),
+    );
+    schedulePanFinalize();
   }
 };
 
@@ -605,7 +646,6 @@ function isRectInsidePolygon(bboxPx: { left: number; right: number; top: number;
 const runLassoSelectionFast = (rawPathPx: Vec2[]) => {
   const token = ++lassoSelectionToken.value;
   cancelPendingDeferredDeepRender();
-  cancelPendingIdleZoomPreviewCacheBuild();
 
   const pathPx = rawPathPx;
   const pathAabb = getPolygonAabb(pathPx);
@@ -735,7 +775,6 @@ const renderNow = () => {
   }
 
   renderer.value.render();
-  scheduleIdleZoomPreviewCacheBuild();
   // requestAnimationFrame(render);
 };
 
@@ -1764,7 +1803,8 @@ const cancelAllPendingTimers = () => {
   }
   cancelPendingDeferredDeepRender();
   cancelPendingPanFinalize();
-  cancelPendingIdleZoomPreviewCacheBuild();
+  cancelPendingMidPanRefresh();
+  cancelPendingTouchZoomEndCheck();
 };
 
 // Interaction state (selection, in-flight gestures, previews, scheduled timers) all belongs to
@@ -1777,7 +1817,6 @@ const resetInteractionStateForDocumentSwitch = () => {
   interactivePanning.value = false;
   zoomPreview.value = undefined;
   panPreview.value = undefined;
-  idleZoomPreviewCache.value = undefined;
   pointerEvents.value = [];
   isZooming.value = false;
   selectionPathPx.value = undefined;

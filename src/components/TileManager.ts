@@ -287,6 +287,30 @@ export class TileManager {
     tile.hasRenderedDynamic = true;
   }
 
+  // Renders (but does not composite onto the visible canvas) a ring of tiles beyond the exact
+  // viewport, so a padded preview snapshot has real content to slide/scale into instead of
+  // exposing a hard edge right at the old viewport bounds. Deliberately kept off the
+  // renderAndComposite path: that one runs synchronously at the end of every pan/zoom gesture
+  // (and must stay as cheap as before), so this is called separately, deferred to idle time, to
+  // avoid turning every gesture-end into a much more expensive render.
+  prewarmBufferTiles(viewportSizePx: Vec2, state: RenderState, bufferPx: number) {
+    if (bufferPx <= 0) return;
+    const bufferedPageMm = this.getViewportPageMmFromRect(
+      -bufferPx,
+      -bufferPx,
+      viewportSizePx.x + bufferPx * 2,
+      viewportSizePx.y + bufferPx * 2,
+    );
+    for (const tile of this.getVisibleTiles(bufferedPageMm)) {
+      if (state.rerenderStaticTiles || tile.dirtyStatic) {
+        this.renderStaticTile(tile, state.staticShapes);
+      }
+      if (state.rerenderDynamicTiles || tile.dirtyDynamic) {
+        this.renderDynamicTile(tile, state);
+      }
+    }
+  }
+
   private resizeCompositor(viewportSizePx: Vec2) {
     const dpr = window.devicePixelRatio;
     const targetWidth = Math.max(1, Math.round(viewportSizePx.x * dpr));
