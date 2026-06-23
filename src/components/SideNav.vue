@@ -95,10 +95,12 @@ const menuItems = computed<MenuItem[]>(() => {
 
   const process = (f: FSFileEntry | FSDirEntry): MenuItem => {
     if (f.type === "file") {
+      const isCurrentlyOpen = store.currentlyOpenDocument?.fileHandle?.fullPath === f.fullPath;
       return {
         label: f.filename.replace(/\.tsk$/i, ""),
         key: f.fullPath,
         icon: "pi pi-file",
+        class: isCurrentlyOpen ? "tsk-open-file" : undefined,
         command: () => openFile(f),
       };
     } else {
@@ -300,3 +302,15 @@ const pdfLoading = ref(false);
     </div>
   </div>
 </template>
+
+<style>
+/* PrimeVue paints the item's background/hover state on the inner content element, not the
+   <li> itself, so the highlight has to target that element directly rather than relying on
+   item.class on the <li> to show through. !important because PrimeVue's theme CSS is injected
+   at runtime (after this component's static styles) and otherwise wins ties at equal/lower
+   specificity regardless of source order. */
+.tsk-open-file > .p-panelmenu-item-content {
+  background-color: rgba(37, 99, 235, 0.15) !important;
+  font-weight: 600;
+}
+</style>
