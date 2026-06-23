@@ -1477,6 +1477,13 @@ class Controls {
     this.e = e;
     this.processEventImpl();
 
+    if (this.e.buttons & 4) {
+      beginInteractivePanPreview();
+      currentDocument.value.offset = currentDocument.value.offset.add(new Vec2(this.e.movementX, this.e.movementY));
+      schedulePanFinalize();
+      return;
+    }
+
     if (this.penDown || this.eraserButton || this.stylusButton) {
       this.onMouseDrag();
     } else {
