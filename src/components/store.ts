@@ -329,48 +329,50 @@ export const useStore = defineStore("tsk-main", {
         dirHandle: FileSystemDirectoryHandle,
         parentPath: string,
       ): Promise<(FSFileEntry | FSDirEntry)[]> => {
-        const entries: (FSFileEntry | FSDirEntry)[] = [];
+        // Enumerating a directory's own entries has to go through dirHandle.entries()'s single
+        // async iterator one step at a time, but recursing into subdirectories doesn't need to
+        // wait for each other. The previous version awaited each subdirectory's full recursive
+        // walk before even looking at the next sibling, so the whole tree was read one
+        // directory at a time, depth-first, with zero overlap - the dominant cost for a vault
+        // with many folders. Collect this level's entries first, then recurse into all of its
+        // subdirectories concurrently.
+        const fileHandles: { name: string; handle: FileSystemFileHandle }[] = [];
+        const dirHandles: { name: string; handle: FileSystemDirectoryHandle }[] = [];
         for await (const [name, handle] of dirHandle.entries()) {
           if (handle.kind === "file") {
-            let skip = false;
-            // if (name.includes(".crswap")) {
-            //   skip = true;
-            // }
-            // if (name.includes(".pdf")) {
-            //   skip = true;
-            // }
-            if (!name.includes(".tsk")) {
-              skip = true;
-            }
-            if (!skip) {
-              entries.push({
-                type: "file",
-                filename: name,
-                handle: handle,
-                fullPath: parentPath + name,
-              });
+            if (name.includes(".tsk")) {
+              fileHandles.push({ name, handle });
             }
           } else if (handle.kind === "directory") {
-            let skip = false;
-            if (name.startsWith(".")) {
-              skip = true;
-            }
-            if (!skip) {
-              const children = await processEntries(handle, parentPath + name + "/");
-              children.sort(compareEntries);
-              if (children.length > 0) {
-                entries.push({
-                  type: "directory",
-                  dirname: name,
-                  handle: handle,
-                  fullPath: parentPath + name + "/",
-                  children: children,
-                });
-              }
+            if (!name.startsWith(".")) {
+              dirHandles.push({ name, handle });
             }
           }
         }
-        return entries;
+
+        const files: FSFileEntry[] = fileHandles.map(({ name, handle }) => ({
+          type: "file",
+          filename: name,
+          handle,
+          fullPath: parentPath + name,
+        }));
+
+        const dirs = await Promise.all(
+          dirHandles.map(async ({ name, handle }): Promise<FSDirEntry | undefined> => {
+            const children = await processEntries(handle, parentPath + name + "/");
+            children.sort(compareEntries);
+            if (children.length === 0) return undefined;
+            return {
+              type: "directory",
+              dirname: name,
+              handle,
+              fullPath: parentPath + name + "/",
+              children,
+            };
+          }),
+        );
+
+        return [...files, ...dirs.filter((d): d is FSDirEntry => d !== undefined)];
       };
 
       const fs: VaultFS = {
