@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Vec2 } from "./Vector";
 import { type Document, type ImageShape, type LineShape, type Page, type Shape, type TextblockShape } from "./Document";
 import {
   assert,
   combineBBox,
+  getPath,
   isPointInBBox,
   loadImageAsync,
   RESIZE_HANDLE_SIZE,
@@ -908,9 +909,9 @@ class Controls {
 
         let deleteShape = false;
         if (shape.variant === "Line") {
-          const outlineMm = store
-            .getPath(shape.penThickness, shape.points, "accurate")
-            .map((p) => new Vec2(p[0], p[1]));
+          const outlineMm = getPath(shape.penThickness, shape.points, "accurate").map(
+            (p) => new Vec2(p[0], p[1]),
+          );
 
           if (pointInPolygon(eraserPosMm, outlineMm)) {
             deleteShape = true;
@@ -1064,13 +1065,13 @@ class Controls {
         bottom: this.cursorPosMm.y,
         top: this.cursorPosMm.y,
       },
-      points: [
+      points: markRaw([
         {
           x: this.cursorPosMm.x,
           y: this.cursorPosMm.y,
           pressure: 0.5,
         },
-      ],
+      ]),
       penColor: store.penColor,
       penThickness: store.penSizeMm,
     };
@@ -1156,9 +1157,9 @@ class Controls {
 
         let deleteShape = false;
         if (shape.variant === "Line") {
-          const outlineMm = store
-            .getPath(shape.penThickness, shape.points, "accurate")
-            .map((p) => new Vec2(p[0], p[1]));
+          const outlineMm = getPath(shape.penThickness, shape.points, "accurate").map(
+            (p) => new Vec2(p[0], p[1]),
+          );
 
           if (pointInPolygon(eraserPosMm, outlineMm)) {
             deleteShape = true;
@@ -1579,11 +1580,13 @@ async function pasteShapes() {
               bbox: { bottom: 0, left: 0, right: 0, top: 0 },
               penColor: shape.penColor,
               penThickness: shape.penThickness,
-              points: shape.points.map((p) => ({
-                pressure: p.pressure,
-                x: p.x,
-                y: p.y,
-              })),
+              points: markRaw(
+                shape.points.map((p) => ({
+                  pressure: p.pressure,
+                  x: p.x,
+                  y: p.y,
+                })),
+              ),
             };
             updateShapeBBox(line);
             pastedShapes.push(line);

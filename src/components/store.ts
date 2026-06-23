@@ -29,7 +29,7 @@ import getStroke from "perfect-freehand";
 // import PaperTexture from "@/assets/paper-texture.jpg";
 // import PaperTextureWhite from "@/assets/paper-texture-white.avif";
 import PaperTextureTiling from "@/assets/paper-texture-tiling.jpg";
-import { computed, nextTick } from "vue";
+import { computed, markRaw, nextTick } from "vue";
 
 export const RESIZE_HANDLE_SIZE = 8;
 
@@ -50,11 +50,28 @@ export function isPointInBBox(bbox: BBox, point: Vec2) {
   return point.x >= bbox.left && point.x <= bbox.right && point.y >= bbox.top && point.y <= bbox.bottom;
 }
 
+// Plain function rather than a Pinia action: this runs in tight per-point, per-shape loops
+// (bbox updates, hit-testing, every tile redraw), and going through Pinia's action wrapper
+// for each call was showing up as significant overhead in profiling.
+export function getPath(penSize: number, points: Point[], mode: "fast" | "accurate") {
+  const accuracyScaling = useStore().perfectFreehandAccuracyScaling;
+  const scaledPoints = points.map((p) => ({
+    pressure: p.pressure,
+    x: p.x * accuracyScaling,
+    y: p.y * accuracyScaling,
+  }));
+  const result = getStroke(scaledPoints, {
+    size: penSize * accuracyScaling,
+    smoothing: 0,
+    streamline: mode === "fast" ? 0.6 : 0.6,
+    thinning: 0.1,
+  });
+  return result.map((p) => [p[0] / accuracyScaling, p[1] / accuracyScaling]);
+}
+
 export function updateShapeBBox(shape: Shape) {
   if (shape.variant === "Line") {
-    const outlineMm = useStore()
-      .getPath(shape.penThickness, shape.points, "accurate")
-      .map((p) => new Vec2(p[0], p[1]));
+    const outlineMm = getPath(shape.penThickness, shape.points, "accurate").map((p) => new Vec2(p[0], p[1]));
     const bbox: BBox = {
       left: outlineMm[0].x,
       right: outlineMm[0].x,
@@ -385,11 +402,16 @@ export const useStore = defineStore("tsk-main", {
                     if (s.variant === "Line") {
                       const line = {
                         variant: "Line",
-                        points: s.points.map((point) => ({
-                          x: point.x,
-                          y: point.y,
-                          pressure: point.pressure,
-                        })),
+                        // Points are never bound to in the template and can number in the
+                        // thousands; keeping them out of Pinia's deep reactivity avoids proxying
+                        // every point and makes per-point access (getPath, moving, resizing) fast.
+                        points: markRaw(
+                          s.points.map((point) => ({
+                            x: point.x,
+                            y: point.y,
+                            pressure: point.pressure,
+                          })),
+                        ),
                         bbox: { left: 0, right: 0, top: 0, bottom: 0 },
                         penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
                         penThickness: s.penThickness,
@@ -635,24 +657,6 @@ export const useStore = defineStore("tsk-main", {
       await this.loadVault();
       await this.loadAndOpenDocument(handle);
     },
-    getPath(penSize: number, points: Point[], mode: "fast" | "accurate") {
-      const scaledPoints = points.map((p) => ({
-        pressure: p.pressure,
-        x: p.x * this.perfectFreehandAccuracyScaling,
-        y: p.y * this.perfectFreehandAccuracyScaling,
-      }));
-      const result = getStroke(scaledPoints, {
-        size: penSize * this.perfectFreehandAccuracyScaling,
-        smoothing: 0,
-        streamline: mode === "fast" ? 0.6 : 0.6,
-        thinning: 0.1,
-      });
-      const scaledResult = result.map((p) => [
-        p[0] / this.perfectFreehandAccuracyScaling,
-        p[1] / this.perfectFreehandAccuracyScaling,
-      ]);
-      return scaledResult;
-    },
     async getImageBytesFromElement(img: HTMLImageElement): Promise<Uint8Array> {
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
@@ -715,7 +719,7 @@ export const useStore = defineStore("tsk-main", {
 
         for (const shape of page.shapes) {
           if (shape.variant === "Line") {
-            const stroke = this.getPath(shape.penThickness, shape.points, "accurate");
+            const stroke = getPath(shape.penThickness, shape.points, "accurate");
             const d = getSvgPathFromStroke(stroke);
             const { r, g, b, a } = this.parseColor(shape.penColor);
             pdfPage.drawSvgPath(d, {

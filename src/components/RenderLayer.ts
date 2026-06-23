@@ -1,5 +1,5 @@
 import { getDocumentSizePx, type BBox, type Document, type ImageShape, type LineShape, type Shape } from "./Document";
-import { assert, RESIZE_HANDLE_SIZE, useStore } from "./store";
+import { assert, getPath, RESIZE_HANDLE_SIZE, useStore } from "./store";
 import { Vec2 } from "./Vector";
 
 export class RenderLayer {
@@ -85,10 +85,7 @@ export class RenderLayer {
   }
 
   drawLineShape(shape: LineShape, erased = false) {
-    const store = useStore();
-    const points = [...shape.points];
-
-    const outline = store.getPath(shape.penThickness, points, "accurate");
+    const outline = getPath(shape.penThickness, shape.points, "accurate");
     const scalingFactor = this.doc.zoom_px_per_mm;
 
     this.ctx.save();
