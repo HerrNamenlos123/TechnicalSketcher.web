@@ -164,6 +164,10 @@ export function hasPendingSaves(): boolean {
 
 export type VaultIndexFile = {
   lastOpened: string | null;
+  // Which folders are expanded in the sidebar's file tree, keyed by FSDirEntry.fullPath.
+  // Stored in the vault (rather than localStorage) so it syncs across machines along with the
+  // rest of the vault.
+  expandedFolders?: Record<string, boolean>;
 };
 
 export async function makeVaultIndexAvailable() {
@@ -241,21 +245,30 @@ function compareEntries(a: FSFileEntry | FSDirEntry, b: FSFileEntry | FSDirEntry
   return nameA.localeCompare(nameB, "de", { numeric: true });
 }
 
+// Single queue (there's only ever one vault.json) so rapid-fire updates (e.g. expanding several
+// folders in a row) don't open multiple concurrent writable streams against the same handle.
+let vaultIndexSaveQueue: Promise<void> = Promise.resolve();
+
 export const vaultIndex = computed({
   get: (): VaultIndexFile | undefined => {
     return useStore().currentVaultIndex;
   },
-  set: async (value?: VaultIndexFile) => {
+  set: (value?: VaultIndexFile) => {
+    if (!value) return;
     const store = useStore();
-    if (value) {
-      await makeVaultIndexAvailable();
+    // Optimistic local update so reads (e.g. the sidebar's expanded-folders state) see the new
+    // value immediately rather than waiting on the write below.
+    store.currentVaultIndex = value;
+    vaultIndexSaveQueue = vaultIndexSaveQueue.catch(() => {}).then(async () => {
+      if (!store.currentVaultIndexFile) {
+        await makeVaultIndexAvailable();
+      }
       if (store.currentVaultIndexFile) {
         const writable = await store.currentVaultIndexFile.handle.createWritable();
         await writable.write(JSON.stringify(value));
         await writable.close();
-        await makeVaultIndexAvailable();
       }
-    }
+    });
   },
 });
 

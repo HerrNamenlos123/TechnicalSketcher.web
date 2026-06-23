@@ -12,8 +12,6 @@ import {
   type PanelMenuExpandedKeys,
 } from "primevue";
 import type { MenuItem } from "primevue/menuitem";
-import { defineStore } from "pinia";
-import { useLocalStorage } from "@vueuse/core";
 
 const openVault = async () => {
   await store.initVault();
@@ -106,7 +104,7 @@ const menuItems = computed<MenuItem[]>(() => {
     } else {
       let children: MenuItem[] = [{}];
 
-      if (sidenavStore.expandedFolders[f.fullPath]) {
+      if (expandedFolders.value[f.fullPath]) {
         children = [
           ...f.children.map((f) => process(f)),
           {
@@ -150,21 +148,47 @@ const menuItems = computed<MenuItem[]>(() => {
   return result;
 });
 
-const sidenavStore = defineStore("tsk-sidenav", {
-  state: () => ({
-    expandedFolders: useLocalStorage(
-      "tsk-sidenav-expanded-folders",
-      {} as PanelMenuExpandedKeys,
-    ),
-  }),
-})();
-
-watch(
-  sidenavStore.expandedFolders,
-  () => {
-    sidenavStore.expandedFolders.root = true;
+// Persisted into the vault's vault.json (via vaultIndex) instead of localStorage, so which
+// folders are expanded syncs across machines along with the rest of the vault. "root" (the
+// top-level "Files" group) is always forced open here rather than persisted as collapsible.
+const expandedFolders = computed<PanelMenuExpandedKeys>({
+  get: () => ({ ...vaultIndex.value?.expandedFolders, root: true }),
+  set: (value) => {
+    if (!vaultIndex.value) return;
+    vaultIndex.value = { ...vaultIndex.value, expandedFolders: value };
   },
-  { deep: true, immediate: true },
+});
+
+// Ancestor folder fullPaths of a file's fullPath, e.g. "a/b/file.tsk" -> ["a/", "a/b/"],
+// matching how FSDirEntry.fullPath is built (trailing slash, accumulated from the root).
+function getAncestorFolderPaths(fullPath: string): string[] {
+  const segments = fullPath.split("/").filter(Boolean);
+  segments.pop();
+  const ancestors: string[] = [];
+  let prefix = "";
+  for (const segment of segments) {
+    prefix += segment + "/";
+    ancestors.push(prefix);
+  }
+  return ancestors;
+}
+
+// VSCode-style "reveal active file": whenever the open file changes (including on startup,
+// once it's restored from lastOpened), make sure its ancestor folders are expanded so it's
+// actually visible in the tree. The file's own highlight already follows reactively via
+// `isCurrentlyOpen` in menuItems above.
+watch(
+  () => store.currentlyOpenDocument?.fileHandle?.fullPath,
+  (fullPath) => {
+    if (!fullPath || !vaultIndex.value) return;
+    const ancestors = getAncestorFolderPaths(fullPath);
+    const current = vaultIndex.value.expandedFolders ?? {};
+    if (ancestors.every((path) => current[path])) return;
+    vaultIndex.value = {
+      ...vaultIndex.value,
+      expandedFolders: { ...current, ...Object.fromEntries(ancestors.map((path) => [path, true])) },
+    };
+  },
 );
 
 const fileCreateInputRef = ref<InstanceType<typeof InputText>>();
@@ -209,7 +233,7 @@ const pdfLoading = ref(false);
     <div class="h-fit">
       <template v-if="store.vault">
         <PanelMenu
-          v-model:expanded-keys="sidenavStore.expandedFolders"
+          v-model:expanded-keys="expandedFolders"
           style="height: 100%"
           :model="menuItems"
           multiple
