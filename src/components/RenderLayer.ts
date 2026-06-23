@@ -183,13 +183,20 @@ export class RenderLayer {
     const store = useStore();
     this.ctx.save();
     this.setCanvasTransformWithOrigin();
-    this.ctx.lineWidth = store.mmToPx(store.gridLineThicknessMm);
+    // Read everything needed once before the loop: mmToPx is a Pinia action (wrapper overhead
+    // per call) and getDocumentSizePx() allocates a Vec2, neither of which depends on `y`, so
+    // doing either of them per grid line was pure waste.
+    const zoom = this.doc.zoom_px_per_mm;
+    const stepMm = store.gridLineDistanceMm;
+    const pageWidthPx = this.doc.size_mm.x * zoom;
+    this.ctx.lineWidth = store.gridLineThicknessMm * zoom;
     this.ctx.lineCap = "butt";
     this.ctx.strokeStyle = this.doc.gridColor;
-    for (let y = 0; y < this.doc.size_mm.y; y += store.gridLineDistanceMm) {
+    for (let y = 0; y < this.doc.size_mm.y; y += stepMm) {
+      const yPx = y * zoom;
       this.ctx.beginPath();
-      this.ctx.moveTo(0, store.mmToPx(y));
-      this.ctx.lineTo(getDocumentSizePx(this.doc).x, store.mmToPx(y));
+      this.ctx.moveTo(0, yPx);
+      this.ctx.lineTo(pageWidthPx, yPx);
       this.ctx.stroke();
     }
     this.ctx.restore();

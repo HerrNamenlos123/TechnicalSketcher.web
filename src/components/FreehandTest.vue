@@ -8,6 +8,7 @@ import {
   getLineOutline,
   isPointInBBox,
   loadImageAsync,
+  mmToPx,
   RESIZE_HANDLE_SIZE,
   updateShapeBBox,
   useStore,
@@ -892,6 +893,10 @@ class Controls {
         }
       }
       this.resizeLastOriginDistance = distToOrigin;
+      // bbox is intentionally non-reactive (it's read in a hot per-shape loop during static
+      // tile rendering); bump the array reference so selectedShapesColorInputBBox still
+      // recomputes with the fresh bbox values during a live resize.
+      selectedShapes.value = [...selectedShapes.value];
       return;
     }
 
@@ -899,6 +904,9 @@ class Controls {
       for (const shape of selectedShapes.value) {
         moveShape(shape, this.deltaMm);
       }
+      // Same reasoning as the resize branch above: bbox mutations during a move are in-place
+      // and non-reactive, so bump the array reference to keep the color panel position live.
+      selectedShapes.value = [...selectedShapes.value];
       return;
     }
 
@@ -1106,7 +1114,7 @@ class Controls {
     }
     const combinedBBox = this.getCombinedSelectionBBox();
     const handlePosMm = new Vec2(combinedBBox.right, combinedBBox.bottom);
-    const handlePosPx = store.mmToPx(handlePosMm);
+    const handlePosPx = mmToPx(handlePosMm);
     const dist = handlePosPx.sub(this.cursorPosPx).mag();
     return dist <= RESIZE_HANDLE_SIZE;
   }
@@ -1138,6 +1146,10 @@ class Controls {
         }
       }
       this.resizeLastOriginDistance = distToOrigin;
+      // bbox is intentionally non-reactive (it's read in a hot per-shape loop during static
+      // tile rendering); bump the array reference so selectedShapesColorInputBBox still
+      // recomputes with the fresh bbox values during a live resize.
+      selectedShapes.value = [...selectedShapes.value];
       return;
     }
 
@@ -1145,6 +1157,9 @@ class Controls {
       for (const shape of selectedShapes.value) {
         moveShape(shape, this.deltaMm);
       }
+      // Same reasoning as the resize branch above: bbox mutations during a move are in-place
+      // and non-reactive, so bump the array reference to keep the color panel position live.
+      selectedShapes.value = [...selectedShapes.value];
       return;
     }
 

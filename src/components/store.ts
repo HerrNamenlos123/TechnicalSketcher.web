@@ -69,6 +69,18 @@ export function getPath(penSize: number, points: Point[], mode: "fast" | "accura
   return result.map((p) => [p[0] / accuracyScaling, p[1] / accuracyScaling]);
 }
 
+// Plain function for the same reason as getPath above (used in hit-testing on pointer move).
+export function mmToPx<T extends number | Vec2>(mm: T): T {
+  const doc = useStore().currentlyOpenDocument;
+  assert(doc);
+  if (mm instanceof Vec2) {
+    return mm.mul(doc.zoom_px_per_mm) as T;
+  } else if (typeof mm === "number") {
+    return (mm * doc.zoom_px_per_mm) as T;
+  }
+  throw new Error();
+}
+
 // Recomputes a shape's bbox (and, for lines, the cached perfect-freehand outline it's derived
 // from) only if it's actually stale. Call this freely after any edit; it's a no-op when the
 // cache is still valid.
@@ -100,19 +112,19 @@ export function updateShapeBBox(shape: Shape) {
         bbox.bottom = y;
       }
     }
-    shape.bbox = bbox;
+    shape.bbox = markRaw(bbox);
     shape.geometryCache = markRaw({
       penThickness: shape.penThickness,
       pointsLength: shape.points.length,
       outline,
     });
   } else {
-    shape.bbox = {
+    shape.bbox = markRaw({
       left: shape.position.x,
       top: shape.position.y,
       right: shape.position.x + shape.size.x,
       bottom: shape.position.y + shape.size.y,
-    };
+    });
   }
 }
 
@@ -448,7 +460,7 @@ export const useStore = defineStore("tsk-main", {
                       if (s.bbox && s.cachedOutline) {
                         // Trust the persisted bbox directly so reopening a document with many
                         // large strokes doesn't redo the outline computation just to load them.
-                        line.bbox = s.bbox;
+                        line.bbox = markRaw(s.bbox);
                       } else {
                         updateShapeBBox(line);
                       }
@@ -866,24 +878,6 @@ export const useStore = defineStore("tsk-main", {
         img.onload = () => resolve(img);
         img.onerror = reject;
       });
-    },
-    pxToMm<T extends number | Vec2>(px: T): T {
-      assert(this.currentlyOpenDocument);
-      if (px instanceof Vec2) {
-        return px.div(this.currentlyOpenDocument.zoom_px_per_mm) as T;
-      } else if (typeof px === "number") {
-        return (px / this.currentlyOpenDocument.zoom_px_per_mm) as T;
-      }
-      throw new Error();
-    },
-    mmToPx<T extends number | Vec2>(mm: T): T {
-      assert(this.currentlyOpenDocument);
-      if (mm instanceof Vec2) {
-        return mm.mul(this.currentlyOpenDocument.zoom_px_per_mm) as T;
-      } else if (typeof mm === "number") {
-        return (mm * this.currentlyOpenDocument.zoom_px_per_mm) as T;
-      }
-      throw new Error();
     },
   },
 });
