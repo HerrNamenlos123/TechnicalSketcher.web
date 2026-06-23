@@ -69,30 +69,43 @@ export function getPath(penSize: number, points: Point[], mode: "fast" | "accura
   return result.map((p) => [p[0] / accuracyScaling, p[1] / accuracyScaling]);
 }
 
+// Recomputes a shape's bbox (and, for lines, the cached perfect-freehand outline it's derived
+// from) only if it's actually stale. Call this freely after any edit; it's a no-op when the
+// cache is still valid.
 export function updateShapeBBox(shape: Shape) {
   if (shape.variant === "Line") {
-    const outlineMm = getPath(shape.penThickness, shape.points, "accurate").map((p) => new Vec2(p[0], p[1]));
+    const cache = shape.geometryCache;
+    if (cache && cache.penThickness === shape.penThickness && cache.pointsLength === shape.points.length) {
+      return;
+    }
+
+    const outline = getPath(shape.penThickness, shape.points, "accurate");
     const bbox: BBox = {
-      left: outlineMm[0].x,
-      right: outlineMm[0].x,
-      bottom: outlineMm[0].y,
-      top: outlineMm[0].y,
+      left: outline[0][0],
+      right: outline[0][0],
+      bottom: outline[0][1],
+      top: outline[0][1],
     };
-    for (const p of outlineMm) {
-      if (p.x < bbox.left) {
-        bbox.left = p.x;
+    for (const [x, y] of outline) {
+      if (x < bbox.left) {
+        bbox.left = x;
       }
-      if (p.x > bbox.right) {
-        bbox.right = p.x;
+      if (x > bbox.right) {
+        bbox.right = x;
       }
-      if (p.y < bbox.top) {
-        bbox.top = p.y;
+      if (y < bbox.top) {
+        bbox.top = y;
       }
-      if (p.y > bbox.bottom) {
-        bbox.bottom = p.y;
+      if (y > bbox.bottom) {
+        bbox.bottom = y;
       }
     }
     shape.bbox = bbox;
+    shape.geometryCache = markRaw({
+      penThickness: shape.penThickness,
+      pointsLength: shape.points.length,
+      outline,
+    });
   } else {
     shape.bbox = {
       left: shape.position.x,
@@ -101,6 +114,14 @@ export function updateShapeBBox(shape: Shape) {
       bottom: shape.position.y + shape.size.y,
     };
   }
+}
+
+// Outline used for rendering/hit-testing/PDF export. Goes through updateShapeBBox so the
+// outline and bbox are always computed together and stay in sync.
+export function getLineOutline(shape: LineShape): number[][] {
+  updateShapeBBox(shape);
+  assert(shape.geometryCache);
+  return shape.geometryCache.outline;
 }
 
 export function combineBBox(a: BBox, b: BBox): BBox {
@@ -415,8 +436,22 @@ export const useStore = defineStore("tsk-main", {
                         bbox: { left: 0, right: 0, top: 0, bottom: 0 },
                         penColor: typeof s.penColor === "string" ? s.penColor : "#000000",
                         penThickness: s.penThickness,
+                        geometryCache:
+                          s.bbox && s.cachedOutline
+                            ? markRaw({
+                                penThickness: s.penThickness,
+                                pointsLength: s.points.length,
+                                outline: s.cachedOutline,
+                              })
+                            : undefined,
                       } satisfies LineShape;
-                      updateShapeBBox(line);
+                      if (s.bbox && s.cachedOutline) {
+                        // Trust the persisted bbox directly so reopening a document with many
+                        // large strokes doesn't redo the outline computation just to load them.
+                        line.bbox = s.bbox;
+                      } else {
+                        updateShapeBBox(line);
+                      }
                       return line;
                     } else if (s.variant === "Image") {
                       const image = {
@@ -532,6 +567,8 @@ export const useStore = defineStore("tsk-main", {
                     })),
                     penThickness: s.penThickness,
                     penColor: s.penColor,
+                    bbox: s.bbox,
+                    cachedOutline: s.geometryCache?.outline,
                   } satisfies LineShapeFileFormat;
                 } else if (s.variant === "Textblock") {
                   if (s.rawText.length === 0) {
@@ -719,7 +756,7 @@ export const useStore = defineStore("tsk-main", {
 
         for (const shape of page.shapes) {
           if (shape.variant === "Line") {
-            const stroke = getPath(shape.penThickness, shape.points, "accurate");
+            const stroke = getLineOutline(shape);
             const d = getSvgPathFromStroke(stroke);
             const { r, g, b, a } = this.parseColor(shape.penColor);
             pdfPage.drawSvgPath(d, {

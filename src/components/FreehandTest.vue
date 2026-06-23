@@ -5,7 +5,7 @@ import { type Document, type ImageShape, type LineShape, type Page, type Shape, 
 import {
   assert,
   combineBBox,
-  getPath,
+  getLineOutline,
   isPointInBBox,
   loadImageAsync,
   RESIZE_HANDLE_SIZE,
@@ -719,6 +719,15 @@ const moveShape = (shape: Shape, delta: Vec2) => {
       p.x += delta.x;
       p.y += delta.y;
     }
+    // A pure translation doesn't change the stroke's shape, so the cached outline stays valid
+    // if we shift it by the same delta instead of invalidating it (which would force an
+    // expensive perfect-freehand recompute on the next read).
+    if (shape.geometryCache) {
+      for (const p of shape.geometryCache.outline) {
+        p[0] += delta.x;
+        p[1] += delta.y;
+      }
+    }
   }
   shape.bbox.left += delta.x;
   shape.bbox.right += delta.x;
@@ -747,6 +756,10 @@ const resizeShape = (shape: Shape, origin: Vec2, ratio: number) => {
       p.x = newPos.x;
       p.y = newPos.y;
     }
+    // Unlike a translation, a resize changes point spacing relative to the (unscaled, unless
+    // ctrl/shift is held) pen thickness, so the outline shape itself can change non-uniformly.
+    // Invalidate and let updateShapeBBox() below recompute it properly.
+    shape.geometryCache = undefined;
   }
   updateShapeBBox(shape);
   renderer.value?.markShapeMovedDynamic(oldBBox, shape.bbox);
@@ -913,9 +926,7 @@ class Controls {
 
         let deleteShape = false;
         if (shape.variant === "Line") {
-          const outlineMm = getPath(shape.penThickness, shape.points, "accurate").map(
-            (p) => new Vec2(p[0], p[1]),
-          );
+          const outlineMm = getLineOutline(shape).map((p) => new Vec2(p[0], p[1]));
 
           if (pointInPolygon(eraserPosMm, outlineMm)) {
             deleteShape = true;
@@ -1161,9 +1172,7 @@ class Controls {
 
         let deleteShape = false;
         if (shape.variant === "Line") {
-          const outlineMm = getPath(shape.penThickness, shape.points, "accurate").map(
-            (p) => new Vec2(p[0], p[1]),
-          );
+          const outlineMm = getLineOutline(shape).map((p) => new Vec2(p[0], p[1]));
 
           if (pointInPolygon(eraserPosMm, outlineMm)) {
             deleteShape = true;

@@ -1,4 +1,4 @@
-import type { Point } from "./components/Document";
+import type { BBox, Point } from "./components/Document";
 
 export type FSFileEntry = {
   type: "file";
@@ -25,6 +25,10 @@ export type LineShapeFileFormat = {
   points: Point[];
   penColor: string;
   penThickness: number;
+  // Cached outline + bbox for this stroke, so reopening the file doesn't have to redo the
+  // perfect-freehand computation. Optional for backward compatibility with older files.
+  bbox?: BBox;
+  cachedOutline?: number[][];
 };
 
 export type ImageShapeFileFormat = {

@@ -21,6 +21,16 @@ export type LineShape = {
   bbox: BBox;
   penThickness: number;
   penColor: string;
+  // perfect-freehand's outline (which bbox is derived from) is expensive to recompute for
+  // strokes with many points. Cache it together with the inputs that produced it; it's only
+  // recomputed when points are added/removed or penThickness changes (a pure translation
+  // updates the cached outline in place instead of invalidating it). This round-trips through
+  // the file on disk too, so reopening a document doesn't redo the work either.
+  geometryCache?: {
+    penThickness: number;
+    pointsLength: number;
+    outline: number[][];
+  };
 };
 
 export type ImageShape = {
