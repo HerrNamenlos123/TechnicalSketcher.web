@@ -439,10 +439,12 @@ export const useStore = defineStore("tsk-main", {
           pageColor: input.data.pageColor,
           gridColor: input.data.gridColor,
           gridType: input.data.gridType,
-          offset: DEFAULT_DOCUMENT_OFFSET,
-          zoom_px_per_mm: 5,
+          offset: input.data.viewport
+            ? new Vec2(input.data.viewport.offsetX, input.data.viewport.offsetY)
+            : DEFAULT_DOCUMENT_OFFSET,
+          zoom_px_per_mm: input.data.viewport?.zoomPxPerMm ?? DEFAULT_ZOOM_PX_PER_MM,
           fileHandle: filehandle,
-          currentPageIndex: input.data.currentPageIndex ?? 0,
+          currentPageIndex: Math.min(Math.max(0, input.data.currentPageIndex ?? 0), input.data.pages.length - 1),
         };
         return document;
       } catch (e: unknown) {
@@ -539,6 +541,11 @@ export const useStore = defineStore("tsk-main", {
           pageWidthMm: document.size_mm.x,
           pageHeightMm: document.size_mm.y,
           currentPageIndex: document.currentPageIndex,
+          viewport: {
+            offsetX: document.offset.x,
+            offsetY: document.offset.y,
+            zoomPxPerMm: document.zoom_px_per_mm,
+          },
         },
       };
 

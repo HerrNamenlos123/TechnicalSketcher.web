@@ -79,5 +79,10 @@ export type TskFileFormat = {
     pageWidthMm: number;
     pageHeightMm: number;
     currentPageIndex: number;
+    viewport?: {
+      offsetX: number;
+      offsetY: number;
+      zoomPxPerMm: number;
+    };
   };
 };

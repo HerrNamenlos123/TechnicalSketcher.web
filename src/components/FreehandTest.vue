@@ -180,7 +180,9 @@ function endInteractivePanPreview() {
   if (!interactivePanning.value) return;
   interactivePanning.value = false;
   panPreview.value = undefined;
+  enforceViewportSanity();
   render();
+  store.saveDocument(currentDocument.value);
 }
 
 const schedulePanFinalize = () => {
@@ -296,8 +298,39 @@ const endInteractiveZoomPreview = () => {
   interactiveZooming.value = false;
   zoomPreview.value = undefined;
   store.forceShallowRender = true;
+  enforceViewportSanity();
   render();
   scheduleDeferredDeepRender(80);
+  store.saveDocument(currentDocument.value);
+};
+
+const enforceViewportSanity = () => {
+  if (!viewport.value) return;
+  const vpRect = viewport.value.getBoundingClientRect();
+  if (vpRect.width <= 0 || vpRect.height <= 0) return;
+
+  let zoom = currentDocument.value.zoom_px_per_mm;
+  let needsRecenter = false;
+  if (!Number.isFinite(zoom) || zoom < props.minZoom) {
+    zoom = props.minZoom;
+    needsRecenter = true;
+  } else if (zoom > props.maxZoom) {
+    zoom = props.maxZoom;
+  }
+  currentDocument.value.zoom_px_per_mm = zoom;
+
+  const pageSizePx = currentDocument.value.size_mm.mul(zoom);
+  const offset = currentDocument.value.offset;
+  const isOffsetInvalid = !Number.isFinite(offset.x) || !Number.isFinite(offset.y);
+  const isOutsideViewport =
+    offset.x + pageSizePx.x <= 0 ||
+    offset.x >= vpRect.width ||
+    offset.y + pageSizePx.y <= 0 ||
+    offset.y >= vpRect.height;
+
+  if (needsRecenter || isOffsetInvalid || isOutsideViewport) {
+    currentDocument.value.offset = new Vec2((vpRect.width - pageSizePx.x) / 2, (vpRect.height - pageSizePx.y) / 2);
+  }
 };
 
 const performZoom = (ratio: number, center: Vec2) => {
@@ -1626,15 +1659,23 @@ const keyup = (e: KeyboardEvent) => {
   }
 };
 
+const handleWindowResize = () => {
+  enforceViewportSanity();
+  render();
+};
+
 onMounted(async () => {
   await nextTick();
   assert(mainCanvas.value);
   renderer.value = new Renderer(currentDocument.value, mainCanvas.value);
 
+  enforceViewportSanity();
+
   chooseDefaultPen();
 
   window.addEventListener("keydown", keydown);
   window.addEventListener("keyup", keyup);
+  window.addEventListener("resize", handleWindowResize);
 
   requestAnimationFrame(render);
 });
@@ -1642,6 +1683,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
   window.removeEventListener("keyup", keyup);
+  window.removeEventListener("resize", handleWindowResize);
   if (pendingFrame.value !== undefined) {
     cancelAnimationFrame(pendingFrame.value);
     pendingFrame.value = undefined;

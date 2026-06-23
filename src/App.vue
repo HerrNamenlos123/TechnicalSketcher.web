@@ -65,6 +65,7 @@ const items = ref<MenuItem[]>([
       store.currentlyOpenDocument.currentPageIndex--;
       store.triggerRender = true;
       store.forceDeepRender = true;
+      store.saveDocument(store.currentlyOpenDocument);
     },
   },
   {
@@ -78,6 +79,7 @@ const items = ref<MenuItem[]>([
       store.currentlyOpenDocument.currentPageIndex++;
       store.triggerRender = true;
       store.forceDeepRender = true;
+      store.saveDocument(store.currentlyOpenDocument);
     },
   },
 ]);
