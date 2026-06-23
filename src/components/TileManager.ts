@@ -319,12 +319,17 @@ export class TileManager {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.compositorCanvas.width, this.compositorCanvas.height);
 
+    // Draw every tile under one shared CSS-px-space transform instead of rounding each tile's
+    // device-pixel position independently. Adjacent tiles share an exact source-space edge
+    // (one tile's right edge is the next tile's left edge); rounding dx/dy per tile can nudge
+    // that shared edge by a device pixel in opposite directions for the two tiles, leaving a
+    // hairline gap between them. A single transform maps both tiles' shared edge to the same
+    // output coordinate.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     for (const tile of visibleTiles) {
       const screenX = tile.boundsPx.left * this.doc.zoom_px_per_mm + this.doc.offset.x;
       const screenY = tile.boundsPx.top * this.doc.zoom_px_per_mm + this.doc.offset.y;
-      const dx = Math.round(screenX * dpr);
-      const dy = Math.round(screenY * dpr);
-      ctx.drawImage(tile.mainRenderer.canvas, dx, dy);
+      ctx.drawImage(tile.mainRenderer.canvas, screenX, screenY, TILE_SIZE, TILE_SIZE);
     }
   }
 
@@ -376,19 +381,21 @@ export class TileManager {
     cacheCtx.setTransform(1, 0, 0, 1, 0, 0);
     cacheCtx.clearRect(0, 0, cacheCanvas.width, cacheCanvas.height);
 
+    // Same reasoning as renderAndComposite: draw all tiles under one shared transform instead
+    // of independently rounding each tile's destination position AND size. The latter is what
+    // actually produced the visible gaps here - at quality < 1, every tile's destination width
+    // (a rounded fraction of its native canvas size) could be off by a device pixel from its
+    // neighbor's, so the page background showed through the seam during interactive zooming.
+    const scale = dpr * q;
+    cacheCtx.setTransform(scale, 0, 0, scale, -rectLeftPx * scale, -rectTopPx * scale);
+
     for (const tile of visibleTiles) {
       if (!tile.hasRenderedDynamic) {
         continue;
       }
       const screenX = tile.boundsPx.left * this.doc.zoom_px_per_mm + this.doc.offset.x;
       const screenY = tile.boundsPx.top * this.doc.zoom_px_per_mm + this.doc.offset.y;
-
-      const dx = Math.round((screenX - rectLeftPx) * dpr * q);
-      const dy = Math.round((screenY - rectTopPx) * dpr * q);
-      const dw = Math.round(tile.mainRenderer.canvas.width * q);
-      const dh = Math.round(tile.mainRenderer.canvas.height * q);
-
-      cacheCtx.drawImage(tile.mainRenderer.canvas, dx, dy, dw, dh);
+      cacheCtx.drawImage(tile.mainRenderer.canvas, screenX, screenY, TILE_SIZE, TILE_SIZE);
     }
 
     return {

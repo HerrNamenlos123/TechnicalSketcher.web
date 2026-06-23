@@ -72,6 +72,14 @@ const panPreview = ref<
   | {
       snapshot: HTMLCanvasElement;
       startOffset: Vec2;
+      // Where the snapshot's content is anchored in CSS px relative to the viewport, and the
+      // internal quality it was rendered at. 0/0/1 for a plain non-padded full-quality
+      // snapshot; non-zero/less-than-1 when reusing the padded idle zoom-preview cache, which
+      // extends past the viewport edges so panning has margin to slide into instead of
+      // cropping exactly at the old viewport edge.
+      rectLeftPx: number;
+      rectTopPx: number;
+      quality: number;
     }
   | undefined
 >();
@@ -91,7 +99,11 @@ const idleZoomPreviewCache = ref<
 
 const page = computed(() => currentDocument.value.pages[currentDocument.value.currentPageIndex]);
 
-const ZOOM_PREVIEW_CACHE_QUALITY = 0.45;
+// Used as the very first frame of an interactive zoom/pan gesture (see canUseIdleZoomPreviewCache
+// and beginInteractivePanPreview), so anything less than 1 here was visible as a sudden,
+// pointless resolution drop the instant a gesture started - the tiles it's built from are
+// already fully rendered, so there's no real cost to keeping it at full quality.
+const ZOOM_PREVIEW_CACHE_QUALITY = 1;
 const ZOOM_PREVIEW_CACHE_PADDING_FACTOR = 0.4;
 const INTERACTION_IDLE_MS = 220;
 
@@ -203,6 +215,21 @@ const beginInteractivePanPreview = () => {
   if (interactiveZooming.value) return;
   if (interactivePanning.value) return;
 
+  // Prefer the padded idle zoom-preview cache over a plain snapshot of the current canvas: it
+  // extends past the viewport edges, so panning has real (if lower-res) content to slide into
+  // instead of immediately exposing a hard edge sitting exactly where the viewport used to end.
+  if (canUseIdleZoomPreviewCache() && idleZoomPreviewCache.value) {
+    panPreview.value = {
+      snapshot: idleZoomPreviewCache.value.snapshot,
+      startOffset: new Vec2(currentDocument.value.offset),
+      rectLeftPx: idleZoomPreviewCache.value.rectLeftPx,
+      rectTopPx: idleZoomPreviewCache.value.rectTopPx,
+      quality: idleZoomPreviewCache.value.quality,
+    };
+    interactivePanning.value = true;
+    return;
+  }
+
   const snapshot = document.createElement("canvas");
   snapshot.width = mainCanvas.value.width;
   snapshot.height = mainCanvas.value.height;
@@ -213,6 +240,9 @@ const beginInteractivePanPreview = () => {
   panPreview.value = {
     snapshot,
     startOffset: new Vec2(currentDocument.value.offset),
+    rectLeftPx: 0,
+    rectTopPx: 0,
+    quality: 1,
   };
   interactivePanning.value = true;
 };
@@ -224,10 +254,21 @@ const drawInteractivePanPreview = () => {
 
   const dpr = window.devicePixelRatio;
   const delta = currentDocument.value.offset.sub(panPreview.value.startOffset);
+  const preview = panPreview.value;
+
+  // The snapshot's own content is anchored at (rectLeftPx, rectTopPx) in CSS px relative to
+  // the viewport (negative when it's the padded idle cache, extending past the edges), and may
+  // have been rendered at a lower internal quality than the main canvas - scale it back up to
+  // its true CSS-px size (snapshot.width/height are already in its own device px at that
+  // quality) so it lines up 1:1 with the full-resolution main canvas.
+  const destX = (preview.rectLeftPx + delta.x) * dpr;
+  const destY = (preview.rectTopPx + delta.y) * dpr;
+  const destW = preview.snapshot.width / preview.quality;
+  const destH = preview.snapshot.height / preview.quality;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, mainCanvas.value.width, mainCanvas.value.height);
-  ctx.drawImage(panPreview.value.snapshot, Math.round(delta.x * dpr), Math.round(delta.y * dpr));
+  ctx.drawImage(preview.snapshot, Math.round(destX), Math.round(destY), Math.round(destW), Math.round(destH));
 };
 
 const beginInteractiveZoomPreview = () => {

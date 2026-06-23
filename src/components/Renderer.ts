@@ -25,6 +25,7 @@ export class Renderer {
   private prevEraserPos: Vec2 | undefined = undefined;
   private prevPageSizeMm: Vec2 = new Vec2();
   private prevPageZoom: number = 0;
+  private prevPageIndex: number = -1;
   private readonly mainCanvasElement: HTMLCanvasElement;
 
   private isRendering = false;
@@ -79,7 +80,11 @@ export class Renderer {
     const viewportSizePx = this.getViewportSizePx();
     const pageSizeChanged = !isDeeplyEqual(this.doc.size_mm, this.prevPageSizeMm);
     const zoomChanged = this.prevPageZoom !== this.doc.zoom_px_per_mm;
-    const pageGeometryChanged = pageSizeChanged || zoomChanged;
+    // Tiles are keyed purely by grid position, not by which page they belong to, so flipping
+    // pages without this would leave off-screen tiles (rendered against the previous page)
+    // stale until something else (e.g. a zoom) happened to clear the whole tile cache.
+    const pageIndexChanged = this.prevPageIndex !== this.doc.currentPageIndex;
+    const pageGeometryChanged = pageSizeChanged || zoomChanged || pageIndexChanged;
 
     if (pageGeometryChanged) {
       this.tileManager.clearTiles();
@@ -118,6 +123,7 @@ export class Renderer {
       this.prevEraserPos = this.eraserPosPx && new Vec2(this.eraserPosPx);
       this.prevSelectionPath = this.selectionPathPx && [...this.selectionPathPx];
       this.prevPageZoom = this.doc.zoom_px_per_mm;
+      this.prevPageIndex = this.doc.currentPageIndex;
     }
     this.newlyInsertedShapes = [];
     store.triggerRender = false;
