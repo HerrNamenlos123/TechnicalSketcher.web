@@ -198,7 +198,13 @@ function endInteractivePanPreview() {
   if (!interactivePanning.value) return;
   interactivePanning.value = false;
   panPreview.value = undefined;
-  enforceViewportSanity();
+  // No enforceViewportSanity() here: this fires after every brief pause in an ongoing scroll
+  // (the pan-finalize timeout is only 60ms), not just at the true end of a gesture. Recentering
+  // here meant a normal scroll could transiently satisfy "page is fully off-screen" (e.g. when
+  // zoomed out enough that the page is small relative to the viewport) and get snapped back to
+  // center mid-scroll, which looked like the pan direction randomly reversing. The "page got
+  // lost" safety net only needs to run at structural checkpoints (load, resize, document
+  // switch), not on every interaction pause.
   render();
   store.saveDocument(currentDocument.value);
 }
@@ -219,9 +225,16 @@ const beginInteractivePanPreview = () => {
   // extends past the viewport edges, so panning has real (if lower-res) content to slide into
   // instead of immediately exposing a hard edge sitting exactly where the viewport used to end.
   if (canUseIdleZoomPreviewCache() && idleZoomPreviewCache.value) {
+    // startOffset must be where the cache's content was actually captured, not the live offset
+    // right now - canUseIdleZoomPreviewCache() only checks that zoom hasn't changed, and during
+    // one continuous scroll (markInteraction() keeps resetting the idle-rebuild timer) the same
+    // cache can still be "valid" long after the page has panned far from where it was captured.
+    // Anchoring to the current offset instead made every ~60ms pan-finalize restart compute the
+    // delta against the wrong baseline while the snapshot stayed frozen at the old position -
+    // visually, the page kept snapping back toward where the cache was built.
     panPreview.value = {
       snapshot: idleZoomPreviewCache.value.snapshot,
-      startOffset: new Vec2(currentDocument.value.offset),
+      startOffset: new Vec2(idleZoomPreviewCache.value.startOffset),
       rectLeftPx: idleZoomPreviewCache.value.rectLeftPx,
       rectTopPx: idleZoomPreviewCache.value.rectTopPx,
       quality: idleZoomPreviewCache.value.quality,
@@ -345,7 +358,8 @@ const endInteractiveZoomPreview = () => {
   interactiveZooming.value = false;
   zoomPreview.value = undefined;
   store.forceShallowRender = true;
-  enforceViewportSanity();
+  // See endInteractivePanPreview for why enforceViewportSanity() doesn't belong here: this
+  // fires after every brief pause in an ongoing zoom gesture, not just at the true end of one.
   render();
   scheduleDeferredDeepRender(80);
   store.saveDocument(currentDocument.value);
