@@ -29,7 +29,7 @@ import getStroke from "perfect-freehand";
 // import PaperTexture from "@/assets/paper-texture.jpg";
 // import PaperTextureWhite from "@/assets/paper-texture-white.avif";
 import PaperTextureTiling from "@/assets/paper-texture-tiling.jpg";
-import { computed, markRaw, nextTick } from "vue";
+import { computed, markRaw } from "vue";
 
 export const RESIZE_HANDLE_SIZE = 8;
 
@@ -143,6 +143,23 @@ export function combineBBox(a: BBox, b: BBox): BBox {
     top: Math.min(a.top, b.top),
     bottom: Math.max(a.bottom, b.bottom),
   };
+}
+
+// Tracks the in-flight save (if any) for each document, so callers can wait for it to actually
+// reach disk before navigating away, and so two saves of the same document queue up instead of
+// racing two concurrent writable streams against the same file handle.
+const pendingSaves = new WeakMap<Document, Promise<void>>();
+let pendingSaveCount = 0;
+
+export function flushPendingSave(document: Document | undefined): Promise<void> {
+  if (!document) return Promise.resolve();
+  return pendingSaves.get(document) ?? Promise.resolve();
+}
+
+// For a page-unload warning: there's no reliable way to await async work in a beforeunload
+// handler, so this is just used to decide whether to warn the user at all.
+export function hasPendingSaves(): boolean {
+  return pendingSaveCount > 0;
 }
 
 export type VaultIndexFile = {
@@ -528,7 +545,12 @@ export const useStore = defineStore("tsk-main", {
       }
     },
     async loadAndOpenDocument(filehandle: FSFileEntry) {
-      const newDoc = await this.loadDocument(filehandle);
+      // Make sure the document we're switching away from has actually finished writing to
+      // disk before we drop our reference to it, instead of leaving its save to race against
+      // whatever happens next. Loaded in parallel with reading the new file since the two are
+      // unrelated disk operations.
+      const outgoingDocument = this.currentlyOpenDocument;
+      const [newDoc] = await Promise.all([this.loadDocument(filehandle), flushPendingSave(outgoingDocument)]);
       if (!newDoc) {
         console.error("Loading doc failed");
         return;
@@ -536,22 +558,18 @@ export const useStore = defineStore("tsk-main", {
       for (let i = 0; i < this.openDocuments.length; i++) {
         if (this.openDocuments[i].fileHandle?.filename === newDoc?.fileHandle?.filename) {
           this.openDocuments[i] = newDoc;
-          this.currentlyOpenDocument = undefined;
-          await nextTick();
+          // FreehandTest stays mounted across document switches and rebuilds its renderer via
+          // a watcher on the bound document, so we don't need to bounce currentlyOpenDocument
+          // through undefined/nextTick (which used to force an unmount+remount and a blank
+          // frame) here.
           this.currentlyOpenDocument = newDoc;
-          this.forceDeepRender = true;
-          this.triggerRender = true;
           return;
         }
       }
 
       // No match
       this.openDocuments.push(newDoc);
-      this.currentlyOpenDocument = undefined;
-      await nextTick();
       this.currentlyOpenDocument = newDoc;
-      this.forceDeepRender = true;
-      this.triggerRender = true;
 
       if (vaultIndex.value) {
         vaultIndex.value = { ...vaultIndex.value, lastOpened: filehandle.fullPath };
@@ -624,10 +642,27 @@ export const useStore = defineStore("tsk-main", {
         console.error("fileHandle missing while saving");
         return;
       }
+      const fileHandle = document.fileHandle;
 
-      const writable = await document.fileHandle.handle.createWritable();
-      await writable.write(JSON.stringify(output));
-      await writable.close();
+      // Queue behind any save of this same document that's still in flight, rather than
+      // opening a second concurrent writable stream against the same file handle (which the
+      // File System Access API doesn't allow safely) or racing two writes against each other.
+      const previousSave = pendingSaves.get(document) ?? Promise.resolve();
+      const task = previousSave.catch(() => {}).then(async () => {
+        const writable = await fileHandle.handle.createWritable();
+        await writable.write(JSON.stringify(output));
+        await writable.close();
+      });
+      pendingSaves.set(document, task);
+      pendingSaveCount++;
+      try {
+        await task;
+      } finally {
+        pendingSaveCount--;
+        if (pendingSaves.get(document) === task) {
+          pendingSaves.delete(document);
+        }
+      }
     },
     async fileExists(root: FileSystemDirectoryHandle, path: string): Promise<boolean> {
       const parts = path.split("/").filter(Boolean);

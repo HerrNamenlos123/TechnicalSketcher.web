@@ -1698,14 +1698,68 @@ const handleWindowResize = () => {
   render();
 };
 
+const cancelAllPendingTimers = () => {
+  if (pendingFrame.value !== undefined) {
+    cancelAnimationFrame(pendingFrame.value);
+    pendingFrame.value = undefined;
+  }
+  if (pendingWheelZoomFinalize.value !== undefined) {
+    window.clearTimeout(pendingWheelZoomFinalize.value);
+    pendingWheelZoomFinalize.value = undefined;
+  }
+  cancelPendingDeferredDeepRender();
+  cancelPendingPanFinalize();
+  cancelPendingIdleZoomPreviewCacheBuild();
+};
+
+// Interaction state (selection, in-flight gestures, previews, scheduled timers) all belongs to
+// whichever document was open when it was created. None of it is meaningful for a different
+// document, so it's cleared whenever we switch documents instead of relying on remounting the
+// component (which used to be the only thing that reset it).
+const resetInteractionStateForDocumentSwitch = () => {
+  cancelAllPendingTimers();
+  interactiveZooming.value = false;
+  interactivePanning.value = false;
+  zoomPreview.value = undefined;
+  panPreview.value = undefined;
+  idleZoomPreviewCache.value = undefined;
+  pointerEvents.value = [];
+  isZooming.value = false;
+  selectionPathPx.value = undefined;
+  eraserPosPx.value = undefined;
+  contextPopupPosPx.value = undefined;
+  selectedShapes.value = [];
+  movedShapes.value = [];
+  // Invalidates any in-flight chunked lasso-selection loop from the previous document.
+  lassoSelectionToken.value++;
+};
+
+// Rebuilds the renderer for whichever document is currently bound, reusing the same canvas
+// element and component instance. This used to be done by unmounting/remounting the whole
+// component (toggling currentlyOpenDocument through undefined + nextTick()), which forced a
+// guaranteed blank frame while Vue tore down and recreated the canvas, plus the wait for that
+// teardown to flush. Renderer/TileManager/Tile are cheap to construct, so just replace them
+// synchronously and render immediately instead of waiting on component lifecycle/frame
+// scheduling for something that doesn't need it.
+const setupRendererForCurrentDocument = () => {
+  assert(mainCanvas.value);
+  resetInteractionStateForDocumentSwitch();
+  renderer.value = new Renderer(currentDocument.value, mainCanvas.value);
+  enforceViewportSanity();
+  chooseDefaultPen();
+  store.forceDeepRender = true;
+  render();
+};
+
+// Fires only when the bound document itself is swapped for a different one (e.g. switching
+// files), not on edits to the current document's contents.
+watch(currentDocument, () => {
+  setupRendererForCurrentDocument();
+});
+
 onMounted(async () => {
   await nextTick();
-  assert(mainCanvas.value);
-  renderer.value = new Renderer(currentDocument.value, mainCanvas.value);
-
-  enforceViewportSanity();
-
-  chooseDefaultPen();
+  setupRendererForCurrentDocument();
 
   window.addEventListener("keydown", keydown);
   window.addEventListener("keyup", keyup);
@@ -1718,17 +1772,7 @@ onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
   window.removeEventListener("keyup", keyup);
   window.removeEventListener("resize", handleWindowResize);
-  if (pendingFrame.value !== undefined) {
-    cancelAnimationFrame(pendingFrame.value);
-    pendingFrame.value = undefined;
-  }
-  if (pendingWheelZoomFinalize.value !== undefined) {
-    window.clearTimeout(pendingWheelZoomFinalize.value);
-    pendingWheelZoomFinalize.value = undefined;
-  }
-  cancelPendingDeferredDeepRender();
-  cancelPendingPanFinalize();
-  cancelPendingIdleZoomPreviewCacheBuild();
+  cancelAllPendingTimers();
 });
 
 const setColorForSelectedShapes = (color: string) => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import FreehandTest from "./components/FreehandTest.vue";
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useStore } from "./components/store";
+import { hasPendingSaves, useStore } from "./components/store";
 import { Button, Dock, Splitter, SplitterPanel, Toast } from "primevue";
 import SideNav from "./components/SideNav.vue";
 import type { MenuItem } from "primevue/menuitem";
@@ -12,6 +12,15 @@ const store = useStore();
 const keydown = (e: KeyboardEvent) => {
   if (e.key === "s" && e.ctrlKey) {
     e.preventDefault();
+  }
+};
+
+// There's no reliable way to await an async write inside beforeunload, so the best we can do
+// is warn the user that closing/reloading right now could cut off a save still in flight.
+const beforeunload = (e: BeforeUnloadEvent) => {
+  if (hasPendingSaves()) {
+    e.preventDefault();
+    e.returnValue = "";
   }
 };
 
@@ -36,10 +45,12 @@ watch(
 
 onMounted(async () => {
   window.addEventListener("keydown", keydown);
+  window.addEventListener("beforeunload", beforeunload);
   await store.init();
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
+  window.removeEventListener("beforeunload", beforeunload);
 });
 
 const leftSidebarToggleTrigger = ref(true);
