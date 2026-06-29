@@ -2,12 +2,21 @@
 import FreehandTest from "./components/FreehandTest.vue";
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { hasPendingSaves, useStore } from "./components/store";
-import { Button, Dock, Splitter, SplitterPanel, Toast } from "primevue";
+import { Button, Dock, Splitter, SplitterPanel, Toast, useToast } from "primevue";
 import SideNav from "./components/SideNav.vue";
 import type { MenuItem } from "primevue/menuitem";
 import { useRoute } from "vue-router";
+import { isElectron } from "./vault/electronHandle";
 
 const store = useStore();
+const toast = useToast();
+
+let unsubscribeUpdateDownloaded: (() => void) | undefined;
+let unsubscribeOpenFile: (() => void) | undefined;
+
+const restartForUpdate = () => {
+  window.electronAPI?.updates.quitAndInstall();
+};
 
 const keydown = (e: KeyboardEvent) => {
   if (e.key === "s" && e.ctrlKey) {
@@ -47,10 +56,27 @@ onMounted(async () => {
   window.addEventListener("keydown", keydown);
   window.addEventListener("beforeunload", beforeunload);
   await store.init();
+
+  if (isElectron()) {
+    unsubscribeOpenFile = window.electronAPI!.app.onOpenFile((path) => {
+      store.loadAndOpenDocumentFromPathOptimisticMatch(path);
+    });
+    unsubscribeUpdateDownloaded = window.electronAPI!.updates.onDownloaded(() => {
+      toast.add({
+        severity: "info",
+        summary: "Update ready",
+        detail: "A new version was downloaded. Restart the app to apply it.",
+        group: "update",
+        life: 0,
+      });
+    });
+  }
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", keydown);
   window.removeEventListener("beforeunload", beforeunload);
+  unsubscribeUpdateDownloaded?.();
+  unsubscribeOpenFile?.();
 });
 
 const leftSidebarToggleTrigger = ref(true);
@@ -152,6 +178,14 @@ const items = ref<MenuItem[]>([
       :zoom-sensitivity="0.001"
     />
     <Toast />
+    <Toast position="bottom-right" group="update">
+      <template #message="slotProps">
+        <div class="flex flex-col gap-2">
+          <div>{{ slotProps.message.detail }}</div>
+          <Button label="Restart Now" size="small" @click="restartForUpdate" />
+        </div>
+      </template>
+    </Toast>
   </div>
 </template>
 

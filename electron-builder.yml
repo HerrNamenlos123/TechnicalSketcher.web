@@ -1,0 +1,50 @@
+appId: com.technicalsketcher.app
+productName: TechnicalSketcher
+copyright: Copyright © TechnicalSketcher
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+
+fileAssociations:
+  - ext: tsk
+    name: TechnicalSketcher File
+    description: TechnicalSketcher Document
+    role: Editor
+
+linux:
+  icon: build/icon.png
+  category: Office
+  synopsis: A stylus-friendly sketching and note-taking app
+  syncDesktopName: true
+  target:
+    - AppImage
+    - deb
+
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+publish:
+  provider: github
+  owner: herrnamenlos123
+  repo: technicalsketcher.web

@@ -1,9 +1,35 @@
 import type { BBox, Point } from "./components/Document";
 
+// The subset of the Web File System Access API that store.ts actually uses. Native
+// FileSystemFileHandle/FileSystemDirectoryHandle structurally satisfy these already, so the web
+// build keeps working unchanged. The Electron build implements these same interfaces on top of
+// Node fs via IPC (see src/vault/electronHandle.ts) instead of the browser API.
+export type VaultWritable = {
+  write(data: string | Uint8Array | ArrayBuffer): Promise<void>;
+  close(): Promise<void>;
+};
+
+export type VaultFileHandle = {
+  readonly kind: "file";
+  readonly name: string;
+  getFile(): Promise<{ text(): Promise<string> }>;
+  createWritable(): Promise<VaultWritable>;
+};
+
+export type VaultDirHandle = {
+  readonly kind: "directory";
+  readonly name: string;
+  entries(): AsyncIterableIterator<[string, VaultFileHandle | VaultDirHandle]>;
+  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<VaultDirHandle>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<VaultFileHandle>;
+  queryPermission?(options?: { mode?: "read" | "readwrite" }): Promise<PermissionState>;
+  requestPermission?(options?: { mode?: "read" | "readwrite" }): Promise<PermissionState>;
+};
+
 export type FSFileEntry = {
   type: "file";
   filename: string;
-  handle: FileSystemFileHandle;
+  handle: VaultFileHandle;
   fullPath: string;
 };
 
@@ -11,13 +37,13 @@ export type FSDirEntry = {
   type: "directory";
   dirname: string;
   children: (FSFileEntry | FSDirEntry)[];
-  handle: FileSystemDirectoryHandle;
+  handle: VaultDirHandle;
   fullPath: string;
 };
 
 export type VaultFS = {
   filetree: (FSFileEntry | FSDirEntry)[];
-  rootHandle: FileSystemDirectoryHandle;
+  rootHandle: VaultDirHandle;
 };
 
 export type LineShapeFileFormat = {

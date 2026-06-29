@@ -5,8 +5,11 @@ import type {
   LineShapeFileFormat,
   TextblockShapeFileFormat,
   TskFileFormat,
+  VaultDirHandle,
+  VaultFileHandle,
   VaultFS,
 } from "@/types";
+import { ElectronDirHandle, isElectron } from "@/vault/electronHandle";
 import { defineStore } from "pinia";
 import {
   type Point,
@@ -272,6 +275,37 @@ export const vaultIndex = computed({
   },
 });
 
+// Electron-only: Node fs can watch the vault directory for changes made outside the app (synced
+// in by Dropbox/Syncthing, edited in another tool, etc.) - something the browser File System
+// Access API has no way to do at all. Debounced because a single external save can fire several
+// raw fs events in quick succession.
+let currentVaultUnwatch: (() => void) | undefined;
+let vaultChangeDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+function watchVaultForExternalChanges(rootPath: string) {
+  if (!isElectron()) return;
+  currentVaultUnwatch?.();
+  void window.electronAPI!.vault.watch(rootPath);
+  currentVaultUnwatch = window.electronAPI!.vault.onChanged((relativePath) => {
+    clearTimeout(vaultChangeDebounceTimer);
+    vaultChangeDebounceTimer = setTimeout(() => void handleExternalVaultChange(relativePath), 300);
+  });
+}
+
+async function handleExternalVaultChange(relativePath: string) {
+  const store = useStore();
+  if (!store.vault) return;
+  store.vault = await store.readVault(store.vault.rootHandle);
+
+  const openDoc = store.currentlyOpenDocument;
+  if (openDoc?.fileHandle?.fullPath === relativePath && !pendingSaves.has(openDoc)) {
+    const entry = await store.findFileOptimisticMatch(relativePath);
+    if (entry) {
+      await store.loadAndOpenDocument(entry);
+    }
+  }
+}
+
 export const useStore = defineStore("tsk-main", {
   state: () => ({
     vault: undefined as VaultFS | undefined,
@@ -299,6 +333,15 @@ export const useStore = defineStore("tsk-main", {
   }),
   actions: {
     async initVault() {
+      if (isElectron()) {
+        const path = await window.electronAPI!.vault.pickDirectory();
+        if (!path) return;
+        await window.electronAPI!.vault.setLastPath(path);
+        useStore().vault = await this.readVault(new ElectronDirHandle(path));
+        watchVaultForExternalChanges(path);
+        return;
+      }
+
       const dirHandle = await window.showDirectoryPicker();
       await dirHandle.requestPermission({ mode: "readwrite" });
 
@@ -324,9 +367,9 @@ export const useStore = defineStore("tsk-main", {
       });
     },
 
-    async readVault(rootHandle: FileSystemDirectoryHandle): Promise<VaultFS> {
+    async readVault(rootHandle: VaultDirHandle): Promise<VaultFS> {
       const processEntries = async (
-        dirHandle: FileSystemDirectoryHandle,
+        dirHandle: VaultDirHandle,
         parentPath: string,
       ): Promise<(FSFileEntry | FSDirEntry)[]> => {
         // Enumerating a directory's own entries has to go through dirHandle.entries()'s single
@@ -336,8 +379,8 @@ export const useStore = defineStore("tsk-main", {
         // directory at a time, depth-first, with zero overlap - the dominant cost for a vault
         // with many folders. Collect this level's entries first, then recurse into all of its
         // subdirectories concurrently.
-        const fileHandles: { name: string; handle: FileSystemFileHandle }[] = [];
-        const dirHandles: { name: string; handle: FileSystemDirectoryHandle }[] = [];
+        const fileHandles: { name: string; handle: VaultFileHandle }[] = [];
+        const dirHandles: { name: string; handle: VaultDirHandle }[] = [];
         for await (const [name, handle] of dirHandle.entries()) {
           if (handle.kind === "file") {
             if (name.includes(".tsk")) {
@@ -410,6 +453,15 @@ export const useStore = defineStore("tsk-main", {
       }
     },
     async loadVault() {
+      if (isElectron()) {
+        const path = await window.electronAPI!.vault.getLastPath();
+        if (!path || !(await window.electronAPI!.vault.exists(path))) return;
+        useStore().vault = await this.readVault(new ElectronDirHandle(path));
+        await makeVaultIndexAvailable();
+        watchVaultForExternalChanges(path);
+        return;
+      }
+
       const dbs = await indexedDB.databases();
       const exists = dbs.some((db) => db.name === "vault-db");
       if (!exists) {
@@ -429,7 +481,7 @@ export const useStore = defineStore("tsk-main", {
             const dirHandle = getReq.result;
             if (dirHandle && (await dirHandle.queryPermission({ mode: "readwrite" })) === "granted") {
               useStore().vault = await this.readVault(dirHandle);
-              const _ = vaultIndex.value; // Access to make sure the file gets loaded/created
+              await makeVaultIndexAvailable();
             }
             resolve();
           };
@@ -679,7 +731,7 @@ export const useStore = defineStore("tsk-main", {
         }
       }
     },
-    async fileExists(root: FileSystemDirectoryHandle, path: string): Promise<boolean> {
+    async fileExists(root: VaultDirHandle, path: string): Promise<boolean> {
       const parts = path.split("/").filter(Boolean);
       const filename = parts.pop()!;
       let dir = root;
@@ -695,7 +747,7 @@ export const useStore = defineStore("tsk-main", {
         return false;
       }
     },
-    async getOrCreateFile(root: FileSystemDirectoryHandle, path: string) {
+    async getOrCreateFile(root: VaultDirHandle, path: string) {
       const parts = path.split("/").filter(Boolean);
       const filename = parts.pop()!;
       let dir = root;

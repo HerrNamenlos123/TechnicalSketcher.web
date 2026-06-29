@@ -13,15 +13,7 @@ import {
 } from "primevue";
 import type { MenuItem } from "primevue/menuitem";
 
-const openVault = async () => {
-  await store.initVault();
-  await store.loadVault();
-};
-
-onMounted(async () => {
-  await store.loadVault();
-
-  await makeVaultIndexAvailable();
+const openLastOpenedFile = async () => {
   if (vaultIndex.value?.lastOpened) {
     const file = await store.findFileOptimisticMatch(
       vaultIndex.value.lastOpened,
@@ -30,6 +22,22 @@ onMounted(async () => {
       await openFile(file);
     }
   }
+};
+
+const openVault = async () => {
+  await store.initVault();
+  await store.loadVault();
+  // Without this, vaultIndex.value stays undefined until the next reload (only onMounted below
+  // calls it), and expandedFolders' setter no-ops whenever vaultIndex.value is falsy - so folders
+  // silently refuse to expand no matter how many times you click, until you reload the page.
+  await makeVaultIndexAvailable();
+  await openLastOpenedFile();
+};
+
+onMounted(async () => {
+  await store.loadVault();
+  await makeVaultIndexAvailable();
+  await openLastOpenedFile();
 });
 
 const store = useStore();
@@ -102,14 +110,19 @@ const menuItems = computed<MenuItem[]>(() => {
         command: () => openFile(f),
       };
     } else {
-      let children: MenuItem[] = [{}];
+      // Placeholder child so PanelMenu renders this folder as expandable without eagerly
+      // computing its real children. Needs its own unique key (derived from the folder's path) -
+      // a bare key-less {} here collides across every collapsed folder's placeholder under
+      // PanelMenu's internal key-based expand-state tracking, which was getting one folder's
+      // expand toggle to clash with another's.
+      let children: MenuItem[] = [{ key: `${f.fullPath}__placeholder` }];
 
       if (expandedFolders.value[f.fullPath]) {
         children = [
           ...f.children.map((f) => process(f)),
           {
             label: "Create new file",
-            key: "create-new-file",
+            key: `${f.fullPath}__create-new-file`,
             icon: "pi pi-plus",
             command: (event) => {
               create(event.originalEvent, f.fullPath);
@@ -136,7 +149,7 @@ const menuItems = computed<MenuItem[]>(() => {
         ...store.vault.filetree.map((f) => process(f)),
         {
           label: "Create new file",
-          key: "create-new-file",
+          key: "root__create-new-file",
           icon: "pi pi-plus",
           command: (event) => {
             create(event.originalEvent, "");
